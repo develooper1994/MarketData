@@ -529,9 +529,8 @@ class DataHub:
         fetch_attempted = False
         if fetchable and self._raw_fetcher is not None and not raw_datasets:
             # `raw_datasets` is bridge-owned input; do not forward it to callback options.
-            fetch_options_for_raw = {
-                key: value for key, value in fetch_options.items() if key != "raw_datasets"
-            }
+            fetch_options_for_raw = dict(fetch_options)
+            fetch_options_for_raw.pop("raw_datasets", None)
             fetch_attempted = True
             raw_datasets = self._raw_fetcher(
                 source,
@@ -543,7 +542,13 @@ class DataHub:
             )
             if not isinstance(raw_datasets, dict):
                 raw_datasets = {}
-        if fetchable and not raw_datasets and not raw_datasets_provided and not fetch_attempted:
+        should_report_raw_dataset_required = (
+            fetchable
+            and not raw_datasets
+            and not raw_datasets_provided
+            and not fetch_attempted
+        )
+        if should_report_raw_dataset_required:
             for dataset in fetchable:
                 source_issues_by_dataset[dataset] = "raw_dataset_required"
         else:
