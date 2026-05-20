@@ -1,0 +1,8 @@
+# Suggested companion snippet for develooper1994/AlgoTradePlan pyproject.toml
+
+[project.optional-dependencies]
+# Existing groups omitted for brevity
+market_data_bridge = [
+  # bridge runtime dependencies (example)
+  "orjson>=3.10",
+]
