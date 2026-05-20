@@ -329,6 +329,8 @@ class DataHub:
         limit: int | None = None,
     ) -> list[dict[str, str]]:
         requested_dataset = _canonical(dataset)
+        if limit is not None and limit < 0:
+            limit = 0
         rows: list[tuple[int, dict[str, str]]] = []
         for source, cap in self._caps.map().items():
             if asset_class and asset_class not in cap.get("asset_classes", []):
@@ -524,9 +526,12 @@ class DataHub:
         if not isinstance(raw_datasets, dict):
             raw_datasets = {}
         if fetchable and self._raw_fetcher is not None and not raw_datasets:
-            fetch_options_for_raw = {
-                key: value for key, value in fetch_options.items() if key != "raw_datasets"
-            }
+            if "raw_datasets" in fetch_options:
+                fetch_options_for_raw = {
+                    key: value for key, value in fetch_options.items() if key != "raw_datasets"
+                }
+            else:
+                fetch_options_for_raw = fetch_options
             raw_datasets = self._raw_fetcher(
                 source,
                 symbol,
@@ -540,7 +545,7 @@ class DataHub:
         for dataset in fetchable:
             if dataset not in raw_datasets:
                 source_issues_by_dataset.setdefault(
-                    dataset, f"missing_raw_dataset:{dataset}"
+                    dataset, "missing_raw_dataset"
                 )
 
         # Record all non-fetchable datasets as source issues.

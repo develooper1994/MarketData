@@ -22,7 +22,7 @@ After the cutover:
 | Storage (JSONL artifacts) | **MarketData** (Rust) |
 | Provenance manifests | **MarketData** (Rust) |
 | Source capability metadata | **MarketData** (Rust) |
-| Adapter/query integration surface | **MarketData** (`hub_bridge.py` + Rust bridge) |
+| Raw data fetching / adapter-query integration surface | **MarketData** (`hub_bridge.py` + Rust bridge) |
 | Strategy / portfolio / risk logic | AlgoTradePlan (Python) |
 
 ---
