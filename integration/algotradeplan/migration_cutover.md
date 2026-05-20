@@ -47,7 +47,9 @@ After the cutover:
 - [ ] Set the environment variable pointing AlgoTradePlan at the binary:
 
   ```bash
-  export MARKET_DATA_BIN=/path/to/MarketData/target/release/market_data_bridge
+  export MARKET_DATA_BIN="$HOME/projects/MarketData/target/release/market_data_bridge"
+  # or using the repo path directly:
+  # export MARKET_DATA_BIN="$(pwd)/target/release/market_data_bridge"
   ```
 
 - [ ] Run the existing AlgoTradePlan test suite **before** making any changes

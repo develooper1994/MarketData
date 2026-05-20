@@ -254,13 +254,8 @@ fn normalize_generic_records(raw_payload: &Value) -> Vec<BTreeMap<String, Value>
                     .or_else(|| row.get("datetime_utc"))
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
-                if let Some(ds) = date_str
-                    && let Ok(ts) = chrono::DateTime::parse_from_rfc3339(&ds)
-                {
-                    row.insert(
-                        "timestamp_ms".to_string(),
-                        Value::from(ts.timestamp_millis()),
-                    );
+                if let Some(ts_ms) = date_str.and_then(parse_rfc3339_to_ms) {
+                    row.insert("timestamp_ms".to_string(), Value::from(ts_ms));
                 }
             }
             row
@@ -333,6 +328,13 @@ fn value_to_object(value: &Value) -> Option<Map<String, Value>> {
 
 fn map_to_btreemap(map: Map<String, Value>) -> BTreeMap<String, Value> {
     map.into_iter().collect()
+}
+
+/// Parse an RFC 3339 / ISO 8601 date-time string and return epoch milliseconds.
+fn parse_rfc3339_to_ms(date_str: String) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(&date_str)
+        .ok()
+        .map(|ts| ts.timestamp_millis())
 }
 
 #[cfg(test)]
