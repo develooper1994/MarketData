@@ -1,6 +1,10 @@
 """Companion example for AlgoTradePlan integration.
 
 This file is intentionally standalone so it can be copied into AlgoTradePlan.
+
+After the data-layer migration, ``hub_bridge.py`` is the drop-in replacement
+for ``src/algotradeplan/data/hub.py``.  This example shows the full public API
+that both the original hub and the bridge shim expose.
 """
 
 from __future__ import annotations
@@ -32,6 +36,9 @@ class MarketDataBridge:
     ``DataHub`` implementation: keep capability checks and raw fetching in
     Python, then send the fetched dataset payloads to Rust for normalization,
     quality validation, storage, and provenance.
+
+    After the full cutover, use ``hub_bridge.DataHub`` directly instead of
+    this class.
     """
 
     def __init__(
@@ -46,7 +53,36 @@ class MarketDataBridge:
         self._raw_fetcher = raw_fetcher
 
     def verify_setup(self) -> dict[str, Any]:
+        """Run ``doctor`` and return the bridge contract dict."""
         completed = self._run(["doctor"])
+        return json.loads(completed.stdout)
+
+    def capabilities(self) -> list[dict[str, Any]]:
+        """Return all 24 source capabilities as a list of dicts."""
+        completed = self._run(["capabilities"])
+        return json.loads(completed.stdout)
+
+    def sources(self) -> list[str]:
+        """Return all source names."""
+        completed = self._run(["sources"])
+        return json.loads(completed.stdout)
+
+    def sources_for(
+        self,
+        *,
+        dataset: str | None = None,
+        asset_class: str | None = None,
+        require_live: bool = False,
+    ) -> list[str]:
+        """Return source names filtered by dataset / asset_class / realtime."""
+        args = ["query-sources-for"]
+        if dataset:
+            args += ["--dataset", dataset]
+        if asset_class:
+            args += ["--asset-class", asset_class]
+        if require_live:
+            args.append("--require-live")
+        completed = self._run(args)
         return json.loads(completed.stdout)
 
     def ingest(
@@ -60,6 +96,12 @@ class MarketDataBridge:
         store: bool = True,
         **fetch_options: Any,
     ) -> Any:
+        """Delegate normalize / quality / storage / provenance to Rust.
+
+        ``raw_datasets`` must contain pre-fetched payloads keyed by dataset
+        name (e.g. ``{"kline": [[ts, o, h, l, c, v], ...]}``).  If omitted,
+        ``raw_fetcher`` passed at construction time is called first.
+        """
         payload = raw_datasets
         if payload is None:
             if self._raw_fetcher is None:
@@ -141,3 +183,37 @@ def _to_ingest_result(payload: dict[str, Any]) -> Any:
         provenance=provenance,
         source_issues=payload["source_issues"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Standalone demo
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    bridge = MarketDataBridge()
+
+    print("=== doctor ===")
+    print(json.dumps(bridge.verify_setup(), indent=2))
+
+    print("\n=== sources (first 5) ===")
+    print(bridge.sources()[:5])
+
+    print("\n=== sources_for kline + crypto_spot ===")
+    print(bridge.sources_for(dataset="kline", asset_class="crypto_spot"))
+
+    print("\n=== capabilities (binance_futures) ===")
+    caps = {c["source"]: c for c in bridge.capabilities()}
+    print(json.dumps(caps.get("binance_futures"), indent=2))
+
+    print("\n=== ingest kline (offline) ===")
+    result = bridge.ingest(
+        source="offline_fallback",
+        symbol="BTCUSDT",
+        datasets=["kline"],
+        raw_datasets={
+            "kline": [[1716000000000, 100.0, 110.0, 90.0, 105.0, 1000.0]],
+        },
+        store=False,
+    )
+    print(result)
+
