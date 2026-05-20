@@ -20,7 +20,7 @@ try:  # Replace with the local project import path when copying into AlgoTradePl
         QualityReport,
         StorageReceipt,
     )
-except Exception:  # pragma: no cover - standalone example fallback
+except ImportError:  # pragma: no cover - standalone example fallback
     IngestResult = None
     DataRecord = DataRequest = ProvenanceRecord = QualityReport = StorageReceipt = None
 
