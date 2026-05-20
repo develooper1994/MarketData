@@ -68,6 +68,15 @@ market_data_bridge doctor
 Returns JSON with `status`, `version`, `supported_datasets` (9 types), and
 `bridge_contract` flags.
 
+### `assert-contract` – fail fast on incompatible bridge versions
+
+```bash
+market_data_bridge assert-contract --expected 1
+```
+
+Returns `{"status":"ok","compatible":true,...}` when versions match. Exits
+non-zero when the expected and actual contract versions differ.
+
 ### `capabilities` – full source registry
 
 ```bash

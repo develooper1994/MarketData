@@ -40,6 +40,9 @@ cargo test
 # verify setup
 cargo run --quiet --bin market_data_bridge -- doctor
 
+# assert compatibility with an expected contract version
+cargo run --quiet --bin market_data_bridge -- assert-contract --expected 1
+
 # list all 24 sources
 cargo run --quiet --bin market_data_bridge -- sources
 

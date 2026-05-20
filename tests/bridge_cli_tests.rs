@@ -463,6 +463,33 @@ fn doctor_reports_contract_version() {
 }
 
 #[test]
+fn assert_contract_succeeds_for_matching_version() {
+    let output = Command::new(bridge_bin())
+        .args(["assert-contract", "--expected", "1"])
+        .output()
+        .expect("assert-contract command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["status"], "ok");
+    assert_eq!(payload["expected"], "1");
+    assert_eq!(payload["actual"], "1");
+    assert_eq!(payload["compatible"], true);
+}
+
+#[test]
+fn assert_contract_fails_for_mismatched_version() {
+    let output = Command::new(bridge_bin())
+        .args(["assert-contract", "--expected", "999"])
+        .output()
+        .expect("assert-contract command should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("contract version mismatch"));
+}
+
+#[test]
 fn ingest_normalizes_tick_dataset() {
     let mut child = Command::new(bridge_bin())
         .args([

@@ -477,6 +477,12 @@ setup and assert:
 { "status": "ok", "contract_version": "1" }
 ```
 
+Additionally, consumers should enforce compatibility with:
+
+```bash
+market_data_bridge assert-contract --expected 1
+```
+
 If `contract_version` changes, the consumer's integration test suite must be
 updated before the consumer can ship.
 
