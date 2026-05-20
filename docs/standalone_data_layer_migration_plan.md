@@ -150,6 +150,12 @@ Acceptance criteria:
 - At least one non-AlgoTradePlan consumer can integrate via documented contract.
 - Contract/versioning policy is documented and tested in MarketData CI.
 
+Implementation status:
+
+- `BRIDGE_CONTRACT_VERSION` constant added to `market_data_bridge`; reported in `doctor` output under `contract_version` and `bridge_contract.contract_version`.
+- Fixture-driven bridge parity tests added for all 9 dataset types (`kline`, `tick`, `trade`, `orderbook`, `funding`, `macro`, `news`, `fundamentals`, `corporate_actions`) in `tests/bridge_cli_tests.rs`.
+- Onboarding documentation for any project published at [`docs/new_project_onboarding.md`](../docs/new_project_onboarding.md).
+
 Rollback:
 
 - Keep shim pinned to previous MarketData version while fixing contract regressions.
