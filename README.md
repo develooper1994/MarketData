@@ -1,11 +1,18 @@
 # MarketData
 
-**Authoritative data-layer project** for `develooper1994/AlgoTradePlan`.
+**Standalone, reusable data-layer platform.**
 
-`AlgoTradePlan` has been migrated in a single destructive pass to depend on this
-Rust crate. All data-layer responsibilities (normalize, quality, storage,
-provenance, capability/query logic, and adapter-facing integration surface)
-now live here.
+`MarketData` is the single authoritative data layer for any project that needs
+market data ingestion, normalization, quality validation, storage, provenance
+tracking, and source capability discovery.  It is not tied to any single
+consumer: `AlgoTradePlan`, future trading systems, analytics pipelines, and
+research tooling all consume it through its public surfaces (Rust crate, bridge
+CLI, or the planned gRPC service).
+
+All data-layer responsibilities (normalize, quality, storage, provenance,
+capability/query logic, adapter-facing integration surface, and provider
+registry) live exclusively here.  Consumer projects keep at most a thin
+compatibility shim that delegates every data decision to `MarketData`.
 
 ## Modules
 
@@ -74,6 +81,25 @@ let result = hub.ingest_from_raw(
     true,
 )?;
 ```
+
+## Consumer projects
+
+| Consumer | Integration pattern | Key file |
+|---|---|---|
+| `AlgoTradePlan` | Subprocess bridge | `integration/algotradeplan/hub_bridge.py` |
+| Any Python/polyglot project | Subprocess bridge | `docs/new_project_onboarding.md` |
+| Any Rust project | Crate dependency | `docs/new_project_onboarding.md` |
+| Future gRPC client | Network call (Phase 3) | — |
+
+## Architecture and migration plan
+
+The authoritative document for the full migration and target architecture is:
+
+> **[`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md)**
+
+It covers: target ownership model, adapter/provider architecture, client
+surfaces, migration sequence, acceptance criteria, documentation requirements,
+and validation requirements.
 
 ## AlgoTradePlan migration
 
