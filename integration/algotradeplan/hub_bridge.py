@@ -525,10 +525,14 @@ class DataHub:
         raw_datasets = fetch_options.get("raw_datasets", {})
         if not isinstance(raw_datasets, dict):
             raw_datasets = {}
+        raw_datasets_provided = bool(raw_datasets)
+        fetch_attempted = False
         if fetchable and self._raw_fetcher is not None and not raw_datasets:
+            # `raw_datasets` is bridge-owned input; do not forward it to callback options.
             fetch_options_for_raw = {
                 key: value for key, value in fetch_options.items() if key != "raw_datasets"
             }
+            fetch_attempted = True
             raw_datasets = self._raw_fetcher(
                 source,
                 symbol,
@@ -539,9 +543,13 @@ class DataHub:
             )
             if not isinstance(raw_datasets, dict):
                 raw_datasets = {}
-        for dataset in fetchable:
-            if dataset not in raw_datasets:
-                source_issues_by_dataset[dataset] = "missing_raw_dataset"
+        if fetchable and not raw_datasets and not raw_datasets_provided and not fetch_attempted:
+            for dataset in fetchable:
+                source_issues_by_dataset[dataset] = "raw_dataset_required"
+        else:
+            for dataset in fetchable:
+                if dataset not in raw_datasets:
+                    source_issues_by_dataset[dataset] = "missing_raw_dataset"
 
         # Record all non-fetchable datasets as source issues.
         issues: list[dict[str, str]] = [
