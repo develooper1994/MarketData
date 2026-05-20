@@ -22,7 +22,7 @@ After the cutover:
 | Storage (JSONL artifacts) | **MarketData** (Rust) |
 | Provenance manifests | **MarketData** (Rust) |
 | Source capability metadata | **MarketData** (Rust) |
-| Raw HTTP source adapters | AlgoTradePlan (Python) |
+| Adapter/query integration surface | **MarketData** (`hub_bridge.py` + Rust bridge) |
 | Strategy / portfolio / risk logic | AlgoTradePlan (Python) |
 
 ---
@@ -82,6 +82,9 @@ git rm src/algotradeplan/data/normalize.py
 git rm src/algotradeplan/data/quality.py
 git rm src/algotradeplan/data/storage.py
 git rm src/algotradeplan/data/provenance.py
+git rm src/algotradeplan/data/query.py
+git rm src/algotradeplan/data/coverage.py
+git rm -r src/algotradeplan/data/adapters
 ```
 
 The corresponding Rust implementations live in `develooper1994/MarketData`:
@@ -92,6 +95,9 @@ The corresponding Rust implementations live in `develooper1994/MarketData`:
 | `data/quality.py` | `src/quality.rs` |
 | `data/storage.py` | `src/storage.rs` |
 | `data/provenance.py` | `src/provenance.rs` |
+| `data/query.py` | `src/query.rs` + `integration/algotradeplan/hub_bridge.py` |
+| `data/coverage.py` | `integration/algotradeplan/hub_bridge.py` |
+| `data/adapters/` | `integration/algotradeplan/hub_bridge.py` adapter-facing surface |
 
 ---
 
@@ -120,6 +126,8 @@ grep -r "from src.algotradeplan.data.normalize" .  # should be empty
 grep -r "from src.algotradeplan.data.quality"    .  # should be empty
 grep -r "from src.algotradeplan.data.storage"    .  # should be empty
 grep -r "from src.algotradeplan.data.provenance" .  # should be empty
+grep -r "from src.algotradeplan.data.query"      .  # should be empty
+grep -r "from src.algotradeplan.data.coverage"   .  # should be empty
 ```
 
 Typical replacements:
@@ -172,11 +180,7 @@ The following files and directories should **not** be deleted:
 ```
 src/algotradeplan/data/
     __init__.py        ← keep
-    adapters/          ← keep (raw HTTP connectors – Python stays authoritative)
-    etl.py             ← keep (ETL orchestration façade)
-    coverage.py        ← keep (coverage table builder called by hub_bridge)
-    query.py           ← keep (capability query helpers called by hub_bridge)
-    hub.py             ← REPLACED by hub_bridge.py
+    hub.py             ← REPLACED by hub_bridge.py (thin compatibility shim)
 src/algotradeplan/plugins/data/
     contracts.py       ← keep (shared dataclasses used by hub_bridge)
     interfaces.py      ← keep
@@ -207,7 +211,6 @@ If the migration causes regressions:
 ```
 AlgoTradePlan (Python)
 │
-├── data/adapters/         ← raw HTTP calls to Binance, Yahoo, TEFAS, etc.
 ├── data/hub.py            ← thin bridge shim (delegates to MarketData)
 │       │
 │       │  subprocess (stdin JSON → stdout JSON)
@@ -229,9 +232,8 @@ AlgoTradePlan (Python)
 Phase 1 (done): bridge CLI covers normalize / quality / storage / provenance /
 capabilities.
 
-Phase 2: Move the raw HTTP adapter logic (currently in `data/adapters/`) into
-Rust async tasks using `reqwest`.  AlgoTradePlan then simply calls the bridge
-with no pre-fetching step.
+Phase 2 (done): remove AlgoTradePlan query/coverage ownership and keep only
+`data/hub.py` as compatibility shim backed by MarketData.
 
 Phase 3: Expose the bridge as a gRPC microservice (`tonic`) so AlgoTradePlan
 can run as a separate process and call it over the network.

@@ -17,18 +17,8 @@ Migration notes
 3. Set ``MARKET_DATA_BIN`` to point at the compiled binary, or set
    ``MARKET_DATA_REPO`` to the ``MarketData`` repo root so the bridge falls
    back to ``cargo run``.
-4. Remove ``src/algotradeplan/data/normalize.py``,
-   ``src/algotradeplan/data/quality.py``,
-   ``src/algotradeplan/data/storage.py``, and
-   ``src/algotradeplan/data/provenance.py`` once the smoke tests below pass.
-
-Files that should remain in AlgoTradePlan after the cutover
------------------------------------------------------------
-- ``src/algotradeplan/data/adapters/`` – raw HTTP source connectors
-- ``src/algotradeplan/data/etl.py``    – ETL facade (uses this hub)
-- ``src/algotradeplan/data/coverage.py`` – convenience table builder
-- ``src/algotradeplan/data/query.py``    – capability query helpers
-- ``src/algotradeplan/plugins/``         – plugin interfaces and examples
+4. Remove ``src/algotradeplan/data/`` modules after smoke tests pass.  Only
+   this bridge shim should remain as the compatibility surface.
 """
 
 from __future__ import annotations
@@ -52,6 +42,8 @@ from src.algotradeplan.plugins.data.contracts import (  # type: ignore[import]
 )
 
 JsonGetter = Callable[[str, dict[str, Any]], Any]
+RawDatasetFetcher = Callable[[str, str, list[str], str, int, dict[str, Any]], dict[str, Any]]
+AssetDiscoverer = Callable[[str, int, dict[str, Any]], list[str]]
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +193,8 @@ class DataHub:
         storage: Any | None = None,          # kept for API compat, ignored
         provenance: Any | None = None,        # kept for API compat, ignored
         artifact_root: Path | None = None,    # kept for API compat, passed to bridge
+        raw_fetcher: RawDatasetFetcher | None = None,
+        asset_discoverer: AssetDiscoverer | None = None,
         binary: str | None = None,
         repo_root: Path | os.PathLike[str] | None = None,
     ) -> None:
@@ -212,18 +206,8 @@ class DataHub:
         self._caps = _CapabilityProxy(
             binary=self._binary, repo_root=self._repo_root
         )
-
-        # Import adapter registry lazily; keeps this file usable standalone.
-        try:
-            from src.algotradeplan.data.adapters import (  # type: ignore[import]
-                build_default_adapter_registry,
-            )
-            # json_getter falls back to the bridge-internal getter when None.
-            from src.algotradeplan.data.hub import _default_json_getter  # type: ignore[import]
-            getter = json_getter or _default_json_getter
-            self._adapter_registry = build_default_adapter_registry(getter)
-        except ImportError:
-            self._adapter_registry = None  # type: ignore[assignment]
+        self._raw_fetcher = raw_fetcher
+        self._asset_discoverer = asset_discoverer
 
     # ------------------------------------------------------------------
     # Capability / query API – identical signatures to original hub.py
@@ -239,8 +223,18 @@ class DataHub:
         return cap
 
     def coverage_table(self) -> list[dict[str, str]]:
-        from src.algotradeplan.data.coverage import build_coverage_table  # type: ignore[import]
-        return build_coverage_table(self._caps._all())
+        rows: list[dict[str, str]] = []
+        for cap in self._caps._all():
+            source = str(cap.get("source", ""))
+            for dataset in cap.get("datasets", []):
+                rows.append(
+                    {
+                        "source": source,
+                        "dataset": str(dataset),
+                        "status": _query_dataset_status(cap, str(dataset)),
+                    }
+                )
+        return rows
 
     def dataset_status(self, source: str, dataset: str) -> str:
         return _query_dataset_status(self._caps.get(source), dataset)
@@ -293,12 +287,36 @@ class DataHub:
         return cap.get("api_key_env") if cap else None
 
     def compare_sources(self, sources: list[str], datasets: list[str] | None = None) -> list[dict[str, str]]:
-        from src.algotradeplan.data.query import compare_sources  # type: ignore[import]
-        return compare_sources(self._caps.map(), sources, datasets)
+        caps = self._caps.map()
+        rows: list[dict[str, str]] = []
+        for source in sources:
+            cap = caps.get(source)
+            if cap is None:
+                continue
+            candidate_datasets = datasets or cap.get("datasets", [])
+            implemented = {
+                _canonical(ds) for ds in cap.get("implemented_datasets", [])
+            }
+            rows.append(
+                {
+                    "source": source,
+                    "quality_level": str(cap.get("quality_level", "")),
+                    "implementation_status": str(cap.get("implementation_status", "")),
+                    "supports_realtime": str(bool(cap.get("supports_realtime", False))).lower(),
+                    "requires_api_key": str(bool(cap.get("requires_api_key", False))).lower(),
+                    "implemented_dataset_count": str(
+                        sum(
+                            1
+                            for dataset in candidate_datasets
+                            if _canonical(str(dataset)) in implemented
+                        )
+                    ),
+                }
+            )
+        return rows
 
     def source_summary(self, source: str) -> dict[str, Any]:
-        from src.algotradeplan.data.query import source_summary  # type: ignore[import]
-        return source_summary(self._caps.map(), source)
+        return self._caps.get(source) or {}
 
     def best_sources_for(
         self,
@@ -310,24 +328,76 @@ class DataHub:
         include_metadata_only: bool = False,
         limit: int | None = None,
     ) -> list[dict[str, str]]:
-        from src.algotradeplan.data.query import best_sources_for  # type: ignore[import]
-        return best_sources_for(
-            self._caps.map(),
-            dataset=dataset,
-            asset_class=asset_class,
-            prefer_live=prefer_live,
-            allow_api_key=allow_api_key,
-            include_metadata_only=include_metadata_only,
-            limit=limit,
-        )
+        requested_dataset = _canonical(dataset)
+        rows: list[tuple[int, dict[str, str]]] = []
+        for source, cap in self._caps.map().items():
+            if asset_class and asset_class not in cap.get("asset_classes", []):
+                continue
+            if not allow_api_key and cap.get("requires_api_key", False):
+                continue
+            implemented = {_canonical(ds) for ds in cap.get("implemented_datasets", [])}
+            metadata_only = {_canonical(ds) for ds in cap.get("metadata_only_datasets", [])}
+            has_impl = requested_dataset in implemented
+            has_meta = requested_dataset in metadata_only
+            if not has_impl and not (include_metadata_only and has_meta):
+                continue
+
+            score = 0
+            if prefer_live and cap.get("supports_realtime", False):
+                score += 2
+            quality_level = str(cap.get("quality_level", "community"))
+            score += {"production": 3, "best_effort": 1, "fallback": -1}.get(quality_level, 0)
+            if has_meta and not has_impl:
+                score -= 2
+
+            rows.append(
+                (
+                    score,
+                    {
+                        "source": source,
+                        "quality_level": quality_level,
+                        "implementation_status": str(cap.get("implementation_status", "")),
+                        "requires_api_key": str(bool(cap.get("requires_api_key", False))).lower(),
+                    },
+                )
+            )
+
+        rows.sort(key=lambda item: (-item[0], item[1]["source"]))
+        result = [row for _, row in rows]
+        if limit is not None:
+            return result[: max(0, limit)]
+        return result
 
     def explain_source(self, source: str) -> dict[str, Any]:
-        from src.algotradeplan.data.query import explain_source  # type: ignore[import]
-        return explain_source(self._caps.map(), source)
+        cap = self._caps.get(source)
+        if cap is None:
+            return {"source": source, "status": "unsupported"}
+        return {
+            "source": source,
+            "asset_classes": cap.get("asset_classes", []),
+            "datasets": cap.get("datasets", []),
+            "implemented_datasets": cap.get("implemented_datasets", []),
+            "metadata_only_datasets": cap.get("metadata_only_datasets", []),
+            "implementation_status": cap.get("implementation_status", "unsupported"),
+            "requires_api_key": bool(cap.get("requires_api_key", False)),
+            "api_key_env": cap.get("api_key_env"),
+            "supports_realtime": bool(cap.get("supports_realtime", False)),
+            "supports_discovery": bool(cap.get("supports_discovery", False)),
+            "quality_level": cap.get("quality_level", "community"),
+            "notes": cap.get("notes", ""),
+        }
 
     def explain_dataset(self, dataset: str) -> dict[str, Any]:
-        from src.algotradeplan.data.query import explain_dataset  # type: ignore[import]
-        return explain_dataset(self._caps.map(), dataset)
+        canonical = _canonical(dataset)
+        sources = self.sources_for(dataset=canonical)
+        live_sources = self.sources_for(dataset=canonical, require_live=True)
+        return {
+            "dataset": canonical,
+            "sources": sources,
+            "live_sources": live_sources,
+            "source_count": len(sources),
+            "live_source_count": len(live_sources),
+        }
 
     def recommend_sources(
         self,
@@ -337,37 +407,77 @@ class DataHub:
         prefer_live: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, str]]:
-        from src.algotradeplan.data.query import recommend_sources  # type: ignore[import]
-        return recommend_sources(
-            self._caps.map(),
-            use_case,
-            allow_api_key=allow_api_key,
+        use_case_map: dict[str, tuple[str, str | None]] = {
+            "crypto_live_trading": ("tick", "crypto_perpetual"),
+            "crypto_backtest": ("kline", "crypto_spot"),
+            "equity_swing": ("kline", "equity"),
+            "macro_research": ("macro", "macro"),
+            "news_sentiment": ("news", "news"),
+            "fundamental_screening": ("fundamentals", "equity"),
+        }
+        dataset, asset_class = use_case_map.get(use_case, ("kline", None))
+        return self.best_sources_for(
+            dataset=dataset,
+            asset_class=asset_class,
             prefer_live=prefer_live,
+            allow_api_key=allow_api_key,
+            include_metadata_only=True,
             limit=limit,
         )
 
     def supported_use_cases(self) -> list[str]:
-        from src.algotradeplan.data.query import supported_use_cases  # type: ignore[import]
-        return supported_use_cases()
+        return [
+            "crypto_live_trading",
+            "crypto_backtest",
+            "equity_swing",
+            "macro_research",
+            "news_sentiment",
+            "fundamental_screening",
+        ]
 
     def dataset_sources_matrix(self, datasets: list[str] | None = None) -> list[dict[str, str]]:
-        from src.algotradeplan.data.query import dataset_sources_matrix  # type: ignore[import]
-        return dataset_sources_matrix(self._caps.map(), datasets)
+        all_datasets = sorted(
+            {_canonical(ds) for cap in self._caps._all() for ds in cap.get("datasets", [])}
+        )
+        selected = [_canonical(ds) for ds in (datasets or all_datasets)]
+        rows: list[dict[str, str]] = []
+        for dataset in selected:
+            rows.append(
+                {
+                    "dataset": dataset,
+                    "sources": ",".join(self.sources_for(dataset=dataset)),
+                    "live_sources": ",".join(
+                        self.sources_for(dataset=dataset, require_live=True)
+                    ),
+                }
+            )
+        return rows
 
     def asset_sources_matrix(self, asset_classes: list[str] | None = None) -> list[dict[str, str]]:
-        from src.algotradeplan.data.query import asset_sources_matrix  # type: ignore[import]
-        return asset_sources_matrix(self._caps.map(), asset_classes)
+        all_asset_classes = sorted(
+            {asset for cap in self._caps._all() for asset in cap.get("asset_classes", [])}
+        )
+        selected = asset_classes or all_asset_classes
+        rows: list[dict[str, str]] = []
+        for asset_class in selected:
+            rows.append(
+                {
+                    "asset_class": asset_class,
+                    "sources": ",".join(self.sources_for(asset_class=asset_class)),
+                    "live_sources": ",".join(
+                        self.sources_for(asset_class=asset_class, require_live=True)
+                    ),
+                }
+            )
+        return rows
 
     def discover_assets(self, source: str, limit: int = 10, **filters: Any) -> list[str]:
         cap = self._caps.get(source)
         if not cap or not cap.get("supports_discovery", False):
             return []
-        if self._adapter_registry is None:
+        if self._asset_discoverer is None:
             return []
-        try:
-            symbols = self._adapter_registry.discover_assets(source, max(1, limit), **filters)
-        except KeyError:
-            return []
+        symbols = self._asset_discoverer(source, max(1, limit), filters)
         return symbols[:limit]
 
     # ------------------------------------------------------------------
@@ -410,23 +520,25 @@ class DataHub:
                 continue
             fetchable.append(dataset)
 
-        raw_datasets: dict[str, Any] = {}
-        if fetchable and self._adapter_registry is not None:
-            try:
-                raw_datasets = self._adapter_registry.fetch_raw(
-                    source=source,
-                    symbol=symbol,
-                    datasets=fetchable,
-                    timeframe=timeframe,
-                    limit=limit,
-                    **fetch_options,
+        raw_datasets = fetch_options.pop("raw_datasets", {})
+        if not isinstance(raw_datasets, dict):
+            raw_datasets = {}
+        if fetchable and self._raw_fetcher is not None and not raw_datasets:
+            raw_datasets = self._raw_fetcher(
+                source,
+                symbol,
+                fetchable,
+                timeframe,
+                limit,
+                fetch_options,
+            )
+            if not isinstance(raw_datasets, dict):
+                raw_datasets = {}
+        for dataset in fetchable:
+            if dataset not in raw_datasets:
+                source_issues_by_dataset.setdefault(
+                    dataset, f"missing_raw_dataset:{dataset}"
                 )
-            except KeyError:
-                pass
-        adapter_issues = raw_datasets.pop("__issues__", {}) if isinstance(raw_datasets, dict) else {}
-        if isinstance(adapter_issues, dict):
-            for ds, reason in adapter_issues.items():
-                source_issues_by_dataset[str(ds)] = str(reason)
 
         # Record all non-fetchable datasets as source issues.
         issues: list[dict[str, str]] = [

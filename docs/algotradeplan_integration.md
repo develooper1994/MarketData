@@ -11,8 +11,7 @@ this Rust crate rather than maintaining its own data layer.
 ```
 AlgoTradePlan (Python)
 │
-├── data/adapters/           ← raw HTTP connectors (Python)
-├── data/hub.py              ← thin bridge shim  ──────────────────────┐
+├── data/hub.py              ← thin compatibility shim  ────────────────┐
 │                                                                        │
 │  subprocess (stdin JSON → stdout JSON)                                 │
 ▼                                                                        │
@@ -134,6 +133,9 @@ Key files:
 | `data/storage.py` | Replaced by `src/storage.rs` |
 | `data/provenance.py` | Replaced by `src/provenance.rs` |
 | `data/capabilities.py` | Replaced by `src/capabilities.rs` |
+| `data/query.py` | Replaced by MarketData-owned capability/query surfaces |
+| `data/coverage.py` | Replaced by bridge-backed capability coverage table |
+| `data/adapters/` | Replaced by MarketData adapter-facing integration surfaces |
 
 ---
 
@@ -142,7 +144,6 @@ Key files:
 | Phase | Status | Description |
 |---|---|---|
 | 1 | **Done** | Bridge CLI: ingest, capabilities, sources, query-sources-for |
-| 2 | Planned | Move raw HTTP adapters to Rust async (`reqwest`) |
+| 2 | **Done** | Remove AlgoTradePlan query/coverage ownership; keep only bridge shim |
 | 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
 | 4 | Planned | Rust hot-path: indicators, backtest core |
-
