@@ -118,23 +118,40 @@ impl DataHub {
         raw_datasets: HashMap<String, Value>,
         store: bool,
     ) -> Result<IngestResult, HubError> {
+        self.ingest_from_raw_with_asset_type(
+            source,
+            symbol,
+            datasets,
+            raw_datasets,
+            store,
+            "multi_asset",
+        )
+    }
+
+    pub fn ingest_from_raw_with_asset_type(
+        &mut self,
+        source: &str,
+        symbol: &str,
+        datasets: Vec<String>,
+        raw_datasets: HashMap<String, Value>,
+        store: bool,
+        asset_type: &str,
+    ) -> Result<IngestResult, HubError> {
         let mut normalized: BTreeMap<String, Vec<BTreeMap<String, Value>>> = BTreeMap::new();
         let mut records = Vec::new();
         let mut source_issues = Vec::new();
         let mut dataset_coverage = BTreeMap::new();
+        let raw_datasets_for_result = raw_datasets
+            .iter()
+            .map(|(dataset, payload)| (dataset.clone(), payload.clone()))
+            .collect();
 
         for dataset in &datasets {
             if let Some(raw_payload) = raw_datasets.get(dataset) {
                 let items = normalize_dataset(dataset, source, symbol, raw_payload);
                 dataset_coverage.insert(dataset.clone(), items.len());
                 normalized.insert(dataset.clone(), items.clone());
-                records.extend(to_data_records(
-                    dataset,
-                    source,
-                    "multi_asset",
-                    symbol,
-                    &items,
-                ));
+                records.extend(to_data_records(dataset, source, asset_type, symbol, &items));
             } else {
                 dataset_coverage.insert(dataset.clone(), 0);
                 source_issues.push(BTreeMap::from([
@@ -168,6 +185,7 @@ impl DataHub {
             symbol: Some(symbol.to_string()),
             requested_datasets: datasets,
             dataset_coverage,
+            raw_datasets: raw_datasets_for_result,
             normalized,
             records,
             quality_report,

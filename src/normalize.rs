@@ -36,7 +36,8 @@ pub fn to_data_records(
 ) -> Vec<DataRecord> {
     items
         .iter()
-        .map(|payload| {
+        .enumerate()
+        .map(|(index, payload)| {
             let timestamp_ms = payload
                 .get("timestamp_ms")
                 .and_then(Value::as_i64)
@@ -46,7 +47,7 @@ pub fn to_data_records(
                 .single()
                 .unwrap_or_else(Utc::now)
                 .to_rfc3339();
-            let key = format!("{source}:{dataset}:{symbol}:{timestamp_ms}");
+            let key = format!("{source}:{dataset}:{symbol}:{timestamp_ms}:{}", index + 1);
 
             let mut metadata = BTreeMap::new();
             metadata.insert("dataset".to_string(), Value::String(dataset.to_string()));
@@ -55,7 +56,7 @@ pub fn to_data_records(
             DataRecord {
                 key,
                 observed_at,
-                domain: "market_data".to_string(),
+                domain: dataset_domain(dataset).to_string(),
                 source: source.to_string(),
                 asset_type: asset_type.to_string(),
                 payload: payload.clone(),
@@ -63,6 +64,13 @@ pub fn to_data_records(
             }
         })
         .collect()
+}
+
+fn dataset_domain(dataset: &str) -> &str {
+    match dataset {
+        "kline" | "trade" | "orderbook" | "funding" | "tick" => "market",
+        _ => dataset,
+    }
 }
 
 fn normalize_kline(

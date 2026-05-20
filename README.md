@@ -23,6 +23,18 @@ This repository now hosts the migration-friendly Rust implementation of that sam
 cargo test
 ```
 
+Bridge smoke check for `AlgoTradePlan`-style subprocess integration:
+
+```bash
+cargo run --quiet --bin market_data_bridge -- doctor
+printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
+  cargo run --quiet --bin market_data_bridge -- ingest \
+    --source offline \
+    --symbol BTCUSDT \
+    --datasets kline \
+    --asset-type crypto_spot
+```
+
 Example (library usage):
 
 ```rust
@@ -57,10 +69,11 @@ This project is intentionally adapter-agnostic. Planned adapters can include:
 
 ## AlgoTradePlan integration
 
-Cross-repository write access is not available in this workspace, so the integration-ready companion instructions are provided here:
+Cross-repository write access is not available in this workspace, so the integration-ready companion instructions and verified bridge entrypoint are provided here:
 
 - `docs/algotradeplan_integration.md`
 - `integration/algotradeplan/pyproject_snippet.toml`
 - `integration/algotradeplan/datahub_bridge_example.py`
+- `src/bin/market_data_bridge.rs`
 
-These files show the minimal changes needed in `AlgoTradePlan` to start consuming this Rust data layer.
+These files show the minimal changes needed in `AlgoTradePlan` to replace its duplicated normalize/quality/storage/provenance implementation with `MarketData` while keeping existing source capability and raw-fetch logic until Rust adapters are added.

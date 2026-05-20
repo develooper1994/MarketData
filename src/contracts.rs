@@ -49,6 +49,7 @@ pub struct IngestResult {
     pub symbol: Option<String>,
     pub requested_datasets: Vec<String>,
     pub dataset_coverage: BTreeMap<String, usize>,
+    pub raw_datasets: BTreeMap<String, Value>,
     pub normalized: BTreeMap<String, Vec<BTreeMap<String, Value>>>,
     pub records: Vec<DataRecord>,
     pub quality_report: QualityReport,

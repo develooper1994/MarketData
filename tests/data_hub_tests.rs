@@ -56,8 +56,14 @@ fn ingest_from_raw_builds_records_and_provenance() {
 
     assert_eq!(result.records.len(), 1);
     assert_eq!(result.dataset_coverage.get("kline"), Some(&1));
+    assert!(result.raw_datasets.contains_key("kline"));
     assert!(result.provenance.is_some());
     assert!(result.quality_report.passed, "quality report should pass");
+    assert_eq!(result.records[0].domain, "market");
+    assert_eq!(
+        result.records[0].key,
+        "offline:kline:BTCUSDT:1716200000000:1"
+    );
 }
 
 #[test]
@@ -92,6 +98,13 @@ fn quality_detects_non_monotonic_kline_timestamps() {
             .iter()
             .any(|issue| issue.contains("Non-monotonic timestamps"))
     );
+    assert_eq!(
+        result.raw_datasets.get("kline"),
+        Some(&json!([
+            [1716200000002_i64, "10", "11", "9", "10.5", "42"],
+            [1716200000001_i64, "10", "11", "9", "10.5", "42"]
+        ]))
+    );
 }
 
 #[test]
@@ -113,4 +126,8 @@ fn etl_fetches_via_registered_adapter() {
 
     assert_eq!(etl.results().len(), 1);
     assert_eq!(etl.results()[0].records.len(), 1);
+    assert_eq!(
+        etl.results()[0].records[0].key,
+        "mock:kline:BTCUSDT:1716200000000:1"
+    );
 }
