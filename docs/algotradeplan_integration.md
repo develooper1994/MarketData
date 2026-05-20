@@ -4,6 +4,10 @@
 AlgoTradePlan has been migrated in a single destructive pass to depend on
 this Rust crate rather than maintaining its own data layer.
 
+For the full standalone ownership model, destructive cutover sequence, and
+multi-project reuse target architecture, see
+[`docs/standalone_data_layer_migration_plan.md`](./standalone_data_layer_migration_plan.md).
+
 ---
 
 ## Architecture overview

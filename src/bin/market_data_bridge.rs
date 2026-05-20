@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::env;
 use std::io::{self, Read};
 
+/// Increment this any time the bridge JSON contract changes incompatibly.
+const BRIDGE_CONTRACT_VERSION: &str = "1";
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
@@ -16,6 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "binary": "market_data_bridge",
                 "crate": env!("CARGO_PKG_NAME"),
                 "version": env!("CARGO_PKG_VERSION"),
+                "contract_version": BRIDGE_CONTRACT_VERSION,
                 "transport": "stdin_json",
                 "supported_datasets": [
                     "kline", "tick", "trade", "orderbook", "funding",
@@ -204,6 +208,7 @@ fn print_json(value: &Value, include_contract: bool) -> Result<(), Box<dyn std::
         object.insert(
             "bridge_contract".to_string(),
             json!({
+                "contract_version": BRIDGE_CONTRACT_VERSION,
                 "raw_datasets": true,
                 "storage_receipts": true,
                 "provenance": true,

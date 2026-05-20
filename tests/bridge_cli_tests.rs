@@ -225,6 +225,244 @@ fn query_sources_for_require_live_excludes_non_realtime() {
 }
 
 #[test]
+fn ingest_normalizes_trade_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--datasets",
+            "trade",
+            "--asset-type",
+            "crypto_spot",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "trade": [{"t": 1716200000000_i64, "price": "100.0", "qty": "1.5", "side": "buy"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["trade"], 1);
+    assert_eq!(payload["records"][0]["domain"], "market");
+}
+
+#[test]
+fn ingest_normalizes_orderbook_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--datasets",
+            "orderbook",
+            "--asset-type",
+            "crypto_spot",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "orderbook": {"bids": [["10.0", "1"]], "asks": [["10.1", "1"]], "timestamp_ms": 1716200000000_i64},
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["orderbook"], 1);
+    assert_eq!(payload["records"][0]["domain"], "market");
+}
+
+#[test]
+fn ingest_normalizes_funding_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--datasets",
+            "funding",
+            "--asset-type",
+            "crypto_perpetual",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "funding": [{"fundingTime": 1716200000000_i64, "fundingRate": "0.0001"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["funding"], 1);
+    assert_eq!(payload["records"][0]["domain"], "market");
+}
+
+#[test]
+fn ingest_normalizes_macro_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "fred",
+            "--symbol",
+            "FEDFUNDS",
+            "--datasets",
+            "macro",
+            "--asset-type",
+            "macro_indicator",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "macro": [{"date": "2024-01-01T00:00:00Z", "value": "5.5", "series_id": "FEDFUNDS"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["macro"], 1);
+    assert_eq!(payload["records"][0]["domain"], "macro");
+}
+
+#[test]
+fn ingest_normalizes_news_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "gdelt",
+            "--symbol",
+            "AAPL",
+            "--datasets",
+            "news",
+            "--asset-type",
+            "equity",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "news": [{"title": "Apple reports earnings", "url": "https://example.com", "publishedAt": "2024-01-01T00:00:00Z"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["news"], 1);
+    assert_eq!(payload["records"][0]["domain"], "news");
+}
+
+#[test]
+fn ingest_normalizes_fundamentals_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "financial_modeling_prep",
+            "--symbol",
+            "AAPL",
+            "--datasets",
+            "fundamentals",
+            "--asset-type",
+            "equity",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "fundamentals": [{"date": "2024-01-01T00:00:00Z", "revenue": 100000000, "eps": "1.25"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["fundamentals"], 1);
+    assert_eq!(payload["records"][0]["domain"], "fundamentals");
+}
+
+#[test]
+fn ingest_normalizes_corporate_actions_dataset() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "financial_modeling_prep",
+            "--symbol",
+            "AAPL",
+            "--datasets",
+            "corporate_actions",
+            "--asset-type",
+            "equity",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "corporate_actions": [{"date": "2024-01-01T00:00:00Z", "type": "dividend", "amount": "0.25"}],
+    });
+    serde_json::to_writer(child.stdin.take().expect("stdin"), &input).unwrap();
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(payload["dataset_coverage"]["corporate_actions"], 1);
+    assert_eq!(payload["records"][0]["domain"], "fundamentals");
+}
+
+#[test]
+fn doctor_reports_contract_version() {
+    let output = Command::new(bridge_bin())
+        .arg("doctor")
+        .output()
+        .expect("doctor command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        payload["contract_version"].as_str().is_some(),
+        "doctor should report contract_version"
+    );
+    assert!(
+        payload["bridge_contract"]["contract_version"]
+            .as_str()
+            .is_some(),
+        "bridge_contract object should include contract_version"
+    );
+}
+
+#[test]
 fn ingest_normalizes_tick_dataset() {
     let mut child = Command::new(bridge_bin())
         .args([

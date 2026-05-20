@@ -85,6 +85,8 @@ The destructive data-layer migration has been completed.  Key integration files:
 | `integration/algotradeplan/migration_cutover.md` | Step-by-step migration guide |
 | `integration/algotradeplan/datahub_bridge_example.py` | Standalone usage example |
 | `docs/algotradeplan_integration.md` | Architecture overview and CLI reference |
+| `docs/standalone_data_layer_migration_plan.md` | Authoritative standalone migration + reusable architecture plan |
+| `docs/new_project_onboarding.md` | How to use MarketData from any project |
 
 ### Files removed from AlgoTradePlan
 
