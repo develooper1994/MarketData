@@ -367,7 +367,7 @@ class DataHub:
         rows.sort(key=lambda item: (-item[0], item[1]["source"]))
         result = [row for _, row in rows]
         if limit is not None:
-            return result[: max(0, limit)]
+            return result[:limit]
         return result
 
     def explain_source(self, source: str) -> dict[str, Any]:
@@ -526,12 +526,9 @@ class DataHub:
         if not isinstance(raw_datasets, dict):
             raw_datasets = {}
         if fetchable and self._raw_fetcher is not None and not raw_datasets:
-            if "raw_datasets" in fetch_options:
-                fetch_options_for_raw = {
-                    key: value for key, value in fetch_options.items() if key != "raw_datasets"
-                }
-            else:
-                fetch_options_for_raw = fetch_options
+            fetch_options_for_raw = {
+                key: value for key, value in fetch_options.items() if key != "raw_datasets"
+            }
             raw_datasets = self._raw_fetcher(
                 source,
                 symbol,
@@ -544,9 +541,7 @@ class DataHub:
                 raw_datasets = {}
         for dataset in fetchable:
             if dataset not in raw_datasets:
-                source_issues_by_dataset.setdefault(
-                    dataset, "missing_raw_dataset"
-                )
+                source_issues_by_dataset[dataset] = "missing_raw_dataset"
 
         # Record all non-fetchable datasets as source issues.
         issues: list[dict[str, str]] = [
