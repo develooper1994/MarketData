@@ -1,6 +1,6 @@
 use market_data::{
     DataHub, InMemoryStorage, LocalArtifactStorage, ManifestProvenanceTracker,
-    SourceAdapterRegistry,
+    SourceAdapterRegistry, all_capabilities, capability_map, sources_for,
 };
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -17,17 +17,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "crate": env!("CARGO_PKG_NAME"),
                 "version": env!("CARGO_PKG_VERSION"),
                 "transport": "stdin_json",
-                "supported_datasets": ["kline"],
+                "supported_datasets": [
+                    "kline", "tick", "trade", "orderbook", "funding",
+                    "macro", "news", "fundamentals", "corporate_actions"
+                ],
+                "source_count": all_capabilities().len(),
             }),
             true,
         )?,
-        Some("ingest") => ingest(parse_options(args.collect())?)?,
+        Some("capabilities") => {
+            let caps = all_capabilities();
+            let value = serde_json::to_value(caps)?;
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
+        Some("sources") => {
+            let caps = all_capabilities();
+            let names: Vec<String> = caps.into_iter().map(|c| c.source).collect();
+            println!("{}", serde_json::to_string_pretty(&json!(names))?);
+        }
+        Some("query-sources-for") => query_sources_for(args.collect())?,
+        Some("ingest") => ingest(parse_ingest_options(args.collect())?)?,
         Some(command) => {
             return Err(format!("unknown command: {command}").into());
         }
-        None => return Err("usage: market_data_bridge <doctor|ingest> [options]".into()),
+        None => {
+            return Err(
+                "usage: market_data_bridge <doctor|capabilities|sources|query-sources-for|ingest> [options]"
+                    .into(),
+            );
+        }
     }
 
+    Ok(())
+}
+
+fn query_sources_for(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dataset: Option<String> = None;
+    let mut asset_class: Option<String> = None;
+    let mut require_live = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dataset" => {
+                i += 1;
+                dataset = args.get(i).cloned();
+            }
+            "--asset-class" => {
+                i += 1;
+                asset_class = args.get(i).cloned();
+            }
+            "--require-live" => {
+                require_live = true;
+            }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let caps = capability_map();
+    let result = sources_for(
+        &caps,
+        dataset.as_deref(),
+        asset_class.as_deref(),
+        require_live,
+    );
+    println!("{}", serde_json::to_string_pretty(&json!(result))?);
     Ok(())
 }
 
@@ -71,7 +126,7 @@ fn ingest(options: IngestOptions) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn parse_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std::error::Error>> {
+fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std::error::Error>> {
     let mut options = IngestOptions {
         asset_type: "multi_asset".to_string(),
         ..IngestOptions::default()
@@ -152,6 +207,8 @@ fn print_json(value: &Value, include_contract: bool) -> Result<(), Box<dyn std::
                 "raw_datasets": true,
                 "storage_receipts": true,
                 "provenance": true,
+                "capabilities": true,
+                "query_sources_for": true,
             }),
         );
     }

@@ -1,8 +1,31 @@
 # Integrating MarketData into AlgoTradePlan
 
-This repository contains the Rust replacement for the Python-centric data layer in `AlgoTradePlan`.
+`develooper1994/MarketData` is the **authoritative data-layer project**.
+AlgoTradePlan has been migrated in a single destructive pass to depend on
+this Rust crate rather than maintaining its own data layer.
 
-## Migration-compatible contract mapping
+---
+
+## Architecture overview
+
+```
+AlgoTradePlan (Python)
+│
+├── data/adapters/           ← raw HTTP connectors (Python)
+├── data/hub.py              ← thin bridge shim  ──────────────────────┐
+│                                                                        │
+│  subprocess (stdin JSON → stdout JSON)                                 │
+▼                                                                        │
+market_data_bridge (Rust)  ◄───────────────────────────────────────────┘
+    ├── capabilities         → 24-source registry, dataset status, rankings
+    ├── sources              → source name list
+    ├── query-sources-for    → filtered source lookup
+    └── ingest               → normalize + quality + storage + provenance
+```
+
+---
+
+## Contract mapping
 
 | AlgoTradePlan Python | MarketData Rust |
 |---|---|
@@ -11,47 +34,115 @@ This repository contains the Rust replacement for the Python-centric data layer 
 | `QualityReport` | `contracts::QualityReport` |
 | `StorageReceipt` | `contracts::StorageReceipt` |
 | `ProvenanceRecord` | `contracts::ProvenanceRecord` |
-| `IngestResult.raw_datasets` | `contracts::IngestResult.raw_datasets` |
-| `DataHub.ingest` | `hub::DataHub::ingest` / `ingest_from_raw` |
-| `ETL` | `etl::Etl` |
+| `IngestResult` | `contracts::IngestResult` |
+| `DataHub.ingest` | bridge `ingest` command |
+| `DataHub.sources()` | bridge `sources` command |
+| `DataHub.capability(src)` | bridge `capabilities` command |
+| `DataHub.sources_for(...)` | bridge `query-sources-for` command |
+| `SourceCapability` metadata | `capabilities::SourceCapability` (24 sources) |
+| `normalize_dataset(...)` | `normalize::normalize_dataset` |
+| `CanonicalDataQualityPlugin` | `quality::CanonicalDataQuality` |
+| `LocalArtifactStorage` | `storage::LocalArtifactStorage` |
+| `ManifestProvenanceTracker` | `provenance::ManifestProvenanceTracker` |
 
-## Verified bridge surface
+---
 
-`src/bin/market_data_bridge.rs` is the supported integration entrypoint for `AlgoTradePlan`.
+## Bridge CLI reference
 
-- `doctor` performs a zero-input setup check and reports the JSON bridge contract.
-- `ingest` accepts raw dataset payloads on stdin and returns a JSON `IngestResult` with `raw_datasets`, `records`, `quality_report`, `storage_receipts`, `provenance`, and `source_issues`.
-- The output contract is covered by Rust integration tests, including artifact-writing and missing-dataset behavior.
+Build the binary first:
 
-## Practical integration path (single-pass, low risk)
+```bash
+cargo build --release --bin market_data_bridge
+export MARKET_DATA_BIN="$PWD/target/release/market_data_bridge"
+```
 
-1. Keep existing `AlgoTradePlan` capability/query logic and raw source adapter registry.
-2. Replace Python normalize + quality + storage + provenance internals with a `MarketDataBridge` subprocess call.
-3. Route `DataHub.ingest()` raw payloads into `market_data_bridge ingest`.
-4. Keep the high-level `DataHub`/`ETL` public API unchanged so callers do not notice the migration.
-5. Start with `kline` (the implemented Rust dataset) and expand dataset coverage in Rust before deleting more consumer-side compatibility code.
+### `doctor` – verify setup
 
-## Suggested immediate changes in AlgoTradePlan
+```bash
+market_data_bridge doctor
+```
 
-1. Build the Rust bridge binary:
+Returns JSON with `status`, `version`, `supported_datasets` (9 types), and
+`bridge_contract` flags.
 
-   ```bash
-   cargo build --release --bin market_data_bridge
-   ```
+### `capabilities` – full source registry
 
-2. Configure `MARKET_DATA_BIN` to point at the built binary.
-3. Introduce the bridge from `integration/algotradeplan/datahub_bridge_example.py` inside `src/algotradeplan/data/hub.py`.
-4. Keep capability filtering and raw fetching in Python, but remove the duplicated Python normalize/quality/storage/provenance execution path once `kline` migration checks pass.
+```bash
+market_data_bridge capabilities
+```
 
-## Legacy layer removal target in AlgoTradePlan
+Returns a JSON array of 24 `SourceCapability` objects.
 
-After the `MarketDataBridge` is wired in and the existing `AlgoTradePlan` ingestion tests pass against the Rust-backed path, the old duplicated pipeline modules can be removed from `AlgoTradePlan`:
+### `sources` – source name list
 
-- `src/algotradeplan/data/normalize.py`
-- `src/algotradeplan/data/quality.py`
-- `src/algotradeplan/data/storage.py`
-- `src/algotradeplan/data/provenance.py`
+```bash
+market_data_bridge sources
+```
 
-The capability map, query helpers, coverage docs, and raw source adapters should stay until equivalent Rust adapters are implemented in this repository.
+Returns a JSON array of source names.
 
-See companion snippet files in `integration/algotradeplan/`.
+### `query-sources-for` – filtered source lookup
+
+```bash
+market_data_bridge query-sources-for --dataset kline
+market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
+market_data_bridge query-sources-for --dataset tick --require-live
+```
+
+### `ingest` – normalize / quality / storage / provenance
+
+```bash
+echo '{"kline": [[1716000000000,100,110,90,105,1000]]}' | \
+  market_data_bridge ingest \
+    --source binance_futures \
+    --symbol BTCUSDT \
+    --datasets kline \
+    --store \
+    --record-root ./artifacts/records \
+    --manifest-root ./artifacts/manifests
+```
+
+Returns a JSON `IngestResult` with `records`, `quality_report`,
+`storage_receipts`, `provenance`, and `source_issues`.
+
+Supported dataset types for `ingest`: `kline`, `tick`, `trade`, `orderbook`,
+`funding`, `macro`, `news`, `fundamentals`, `corporate_actions`.
+
+---
+
+## Cutover instructions
+
+See [`integration/algotradeplan/migration_cutover.md`](../integration/algotradeplan/migration_cutover.md)
+for the complete step-by-step destructive migration guide.
+
+Key files:
+
+| File | Purpose |
+|---|---|
+| `integration/algotradeplan/hub_bridge.py` | Drop-in `hub.py` replacement for AlgoTradePlan |
+| `integration/algotradeplan/migration_cutover.md` | Step-by-step cutover guide |
+| `integration/algotradeplan/datahub_bridge_example.py` | Standalone usage example |
+
+---
+
+## Files removed from AlgoTradePlan
+
+| File | Reason |
+|---|---|
+| `data/normalize.py` | Replaced by `src/normalize.rs` |
+| `data/quality.py` | Replaced by `src/quality.rs` |
+| `data/storage.py` | Replaced by `src/storage.rs` |
+| `data/provenance.py` | Replaced by `src/provenance.rs` |
+| `data/capabilities.py` | Replaced by `src/capabilities.rs` |
+
+---
+
+## Rust migration roadmap
+
+| Phase | Status | Description |
+|---|---|---|
+| 1 | **Done** | Bridge CLI: ingest, capabilities, sources, query-sources-for |
+| 2 | Planned | Move raw HTTP adapters to Rust async (`reqwest`) |
+| 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
+| 4 | Planned | Rust hot-path: indicators, backtest core |
+

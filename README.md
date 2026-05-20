@@ -1,21 +1,24 @@
 # MarketData
 
-Rust-native market data ingestion and normalization layer extracted from the `AlgoTradePlan` data architecture.
+**Authoritative data-layer project** for `develooper1994/AlgoTradePlan`.
 
-## Why this project exists
+`AlgoTradePlan` has been migrated in a single destructive pass to depend on this
+Rust crate. All data-processing responsibilities (normalize, quality, storage,
+provenance, source capability metadata) now live here.
 
-`AlgoTradePlan` currently implements a Python `DataHub` pipeline (`fetch -> normalize -> quality -> storage -> provenance`).
-This repository now hosts the migration-friendly Rust implementation of that same pipeline so performance-sensitive ingestion can evolve independently.
+## Modules
 
-## Implemented modules
-
-- `contracts`: request/record/report/provenance structs
-- `normalize`: dataset normalization (`kline` implemented, extensible)
-- `quality`: canonical validation checks (required fields, monotonic timestamps, non-negative OHLCV)
-- `storage`: in-memory and local artifact writers
-- `provenance`: manifest tracker for ingestion lineage
-- `hub`: orchestrates normalize -> quality -> storage -> provenance
-- `etl`: fluent facade over `DataHub`
+| Module | Responsibility |
+|---|---|
+| `capabilities` | 24-source registry with full metadata (replaces `AlgoTradePlan/data/capabilities.py`) |
+| `query` | Source-for-dataset filtering, best-source ranking, dataset-status lookup |
+| `contracts` | Request / record / report / provenance / receipt structs |
+| `normalize` | 9 dataset normalizers: `kline`, `tick`, `trade`, `orderbook`, `funding`, `macro`, `news`, `fundamentals`, `corporate_actions` |
+| `quality` | Canonical validation: required fields, monotonic timestamps, non-negative OHLCV |
+| `storage` | In-memory and local JSONL artifact writers |
+| `provenance` | Manifest tracker for ingestion lineage |
+| `hub` | Orchestrates normalize → quality → storage → provenance |
+| `etl` | Fluent façade over `DataHub` |
 
 ## Quick start
 
@@ -23,10 +26,23 @@ This repository now hosts the migration-friendly Rust implementation of that sam
 cargo test
 ```
 
-Bridge smoke check for `AlgoTradePlan`-style subprocess integration:
+### Bridge CLI commands
 
 ```bash
+# verify setup
 cargo run --quiet --bin market_data_bridge -- doctor
+
+# list all 24 sources
+cargo run --quiet --bin market_data_bridge -- sources
+
+# filter sources by dataset + asset class
+cargo run --quiet --bin market_data_bridge -- query-sources-for \
+  --dataset kline --asset-class crypto_spot
+
+# full source capability metadata
+cargo run --quiet --bin market_data_bridge -- capabilities
+
+# ingest (normalize + quality + storage + provenance)
 printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
   cargo run --quiet --bin market_data_bridge -- ingest \
     --source offline \
@@ -35,7 +51,7 @@ printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
     --asset-type crypto_spot
 ```
 
-Example (library usage):
+### Library usage
 
 ```rust
 use market_data::{DataHub, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
@@ -58,22 +74,42 @@ let result = hub.ingest_from_raw(
 )?;
 ```
 
-## Data source roadmap (for future adapters)
+## AlgoTradePlan migration
 
-This project is intentionally adapter-agnostic. Planned adapters can include:
+The destructive data-layer migration has been completed.  Key integration files:
 
-- BIST vendor APIs (including VERDA-capable feeds where contractually available)
-- KAP disclosures
-- TEFAS fund data
-- Global fallback sources (Yahoo/Google/MSN style web sources, with strict reliability flags)
+| File | Purpose |
+|---|---|
+| `integration/algotradeplan/hub_bridge.py` | Drop-in replacement for `AlgoTradePlan/src/algotradeplan/data/hub.py` |
+| `integration/algotradeplan/migration_cutover.md` | Step-by-step migration guide |
+| `integration/algotradeplan/datahub_bridge_example.py` | Standalone usage example |
+| `docs/algotradeplan_integration.md` | Architecture overview and CLI reference |
 
-## AlgoTradePlan integration
+### Files removed from AlgoTradePlan
 
-Cross-repository write access is not available in this workspace, so the integration-ready companion instructions and verified bridge entrypoint are provided here:
+| Deleted | Rust replacement |
+|---|---|
+| `data/normalize.py` | `src/normalize.rs` |
+| `data/quality.py` | `src/quality.rs` |
+| `data/storage.py` | `src/storage.rs` |
+| `data/provenance.py` | `src/provenance.rs` |
+| `data/capabilities.py` | `src/capabilities.rs` |
 
-- `docs/algotradeplan_integration.md`
-- `integration/algotradeplan/pyproject_snippet.toml`
-- `integration/algotradeplan/datahub_bridge_example.py`
-- `src/bin/market_data_bridge.rs`
+## Rust migration roadmap
 
-These files show the minimal changes needed in `AlgoTradePlan` to replace its duplicated normalize/quality/storage/provenance implementation with `MarketData` while keeping existing source capability and raw-fetch logic until Rust adapters are added.
+| Phase | Status | Description |
+|---|---|---|
+| 1 | **Done** | Bridge CLI: `ingest`, `capabilities`, `sources`, `query-sources-for` |
+| 2 | Planned | Move raw HTTP adapters to Rust async (`reqwest`) |
+| 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
+| 4 | Planned | Rust hot path: indicators, backtest core |
+
+## Data source support (24 sources)
+
+`binance_futures`, `bybit_linear`, `kraken_spot`, `coinbase_spot`,
+`yahoo_unofficial`, `alpha_vantage`, `twelve_data`, `polygon_io`,
+`finnhub`, `quandl`, `iex_cloud`, `frankfurter_fx`, `coingecko`,
+`stooq`, `fred`, `gdelt`, `financial_modeling_prep`, `sec_edgar`,
+`world_bank`, `ecb`, `defillama`, `hacker_news`, `tefas_public`,
+`offline_fallback`
+
