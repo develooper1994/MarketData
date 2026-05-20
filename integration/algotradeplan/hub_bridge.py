@@ -17,8 +17,8 @@ Migration notes
 3. Set ``MARKET_DATA_BIN`` to point at the compiled binary, or set
    ``MARKET_DATA_REPO`` to the ``MarketData`` repo root so the bridge falls
    back to ``cargo run``.
-4. Remove ``src/algotradeplan/data/`` modules after smoke tests pass.  Only
-   this bridge shim should remain as the compatibility surface.
+4. Remove ``src/algotradeplan/data/`` modules after smoke tests pass. Keep
+   only ``__init__.py`` and this bridge-backed ``hub.py`` compatibility shim.
 """
 
 from __future__ import annotations
@@ -520,17 +520,20 @@ class DataHub:
                 continue
             fetchable.append(dataset)
 
-        raw_datasets = fetch_options.pop("raw_datasets", {})
+        raw_datasets = fetch_options.get("raw_datasets", {})
         if not isinstance(raw_datasets, dict):
             raw_datasets = {}
         if fetchable and self._raw_fetcher is not None and not raw_datasets:
+            fetch_options_for_raw = {
+                key: value for key, value in fetch_options.items() if key != "raw_datasets"
+            }
             raw_datasets = self._raw_fetcher(
                 source,
                 symbol,
                 fetchable,
                 timeframe,
                 limit,
-                fetch_options,
+                fetch_options_for_raw,
             )
             if not isinstance(raw_datasets, dict):
                 raw_datasets = {}
