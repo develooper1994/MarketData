@@ -3,8 +3,9 @@
 **Authoritative data-layer project** for `develooper1994/AlgoTradePlan`.
 
 `AlgoTradePlan` has been migrated in a single destructive pass to depend on this
-Rust crate. All data-processing responsibilities (normalize, quality, storage,
-provenance, source capability metadata) now live here.
+Rust crate. All data-layer responsibilities (normalize, quality, storage,
+provenance, capability/query logic, and adapter-facing integration surface)
+now live here.
 
 ## Modules
 
@@ -94,13 +95,16 @@ The destructive data-layer migration has been completed.  Key integration files:
 | `data/storage.py` | `src/storage.rs` |
 | `data/provenance.py` | `src/provenance.rs` |
 | `data/capabilities.py` | `src/capabilities.rs` |
+| `data/query.py` | `src/query.rs` + `integration/algotradeplan/hub_bridge.py` |
+| `data/coverage.py` | `integration/algotradeplan/hub_bridge.py` |
+| `data/adapters/` | `integration/algotradeplan/hub_bridge.py` adapter-facing surface |
 
 ## Rust migration roadmap
 
 | Phase | Status | Description |
 |---|---|---|
 | 1 | **Done** | Bridge CLI: `ingest`, `capabilities`, `sources`, `query-sources-for` |
-| 2 | Planned | Move raw HTTP adapters to Rust async (`reqwest`) |
+| 2 | **Done** | Remove AlgoTradePlan query/coverage ownership; keep thin bridge shim |
 | 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
 | 4 | Planned | Rust hot path: indicators, backtest core |
 
@@ -112,4 +116,3 @@ The destructive data-layer migration has been completed.  Key integration files:
 `stooq`, `fred`, `gdelt`, `financial_modeling_prep`, `sec_edgar`,
 `world_bank`, `ecb`, `defillama`, `hacker_news`, `tefas_public`,
 `offline_fallback`
-
