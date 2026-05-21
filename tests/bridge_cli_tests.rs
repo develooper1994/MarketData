@@ -346,8 +346,34 @@ fn live_fetch_alias_lf_works() {
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
     assert_eq!(payload["dataset"], "kline");
+    assert!(payload["rows"].as_array().is_some_and(|rows| !rows.is_empty()));
+    assert!(payload.get("rows_by_dataset").is_none());
+}
+
+#[test]
+fn live_fetch_multi_dataset_includes_rows_by_dataset() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "live-fetch",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--datasets",
+            "kline,tick",
+        ])
+        .output()
+        .expect("live-fetch command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
     assert!(
         payload["rows_by_dataset"]["kline"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
+    assert!(
+        payload["rows_by_dataset"]["tick"]
             .as_array()
             .is_some_and(|rows| !rows.is_empty())
     );
@@ -413,6 +439,7 @@ fn capabilities_command_returns_all_sources() {
     );
     let sources: Vec<&str> = arr.iter().filter_map(|c| c["source"].as_str()).collect();
     assert!(sources.contains(&"binance_futures"));
+        assert!(sources.contains(&"binance_spot"));
     assert!(sources.contains(&"tefas_public"));
     assert!(sources.contains(&"offline_fallback"));
     // Each entry must have required fields
@@ -440,6 +467,7 @@ fn sources_command_returns_sorted_name_list() {
         .filter_map(|v| v.as_str())
         .collect::<Vec<_>>();
     assert!(names.contains(&"binance_futures"));
+        assert!(names.contains(&"binance_spot"));
     assert!(names.contains(&"yahoo_unofficial"));
 }
 
@@ -900,6 +928,7 @@ fn live_adapters_are_opt_in_and_do_not_crash() {
 
     let cases = vec![
         ("binance_futures", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
+        ("binance_spot", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook"]),
         ("bybit_linear", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
         ("coinbase_spot", "BTC-USD", vec!["tick", "kline", "trade", "orderbook"]),
         ("stooq", "aapl.us", vec!["kline"]),

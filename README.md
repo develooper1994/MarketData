@@ -183,7 +183,7 @@ Keep docs intentionally small and non-duplicative:
 
 ## Data source support (24 sources)
 
-`binance_futures`, `bybit_linear`, `kraken_spot`, `coinbase_spot`,
+`binance_futures`, `binance_spot`, `bybit_linear`, `kraken_spot`, `coinbase_spot`,
 `yahoo_unofficial`, `alpha_vantage`, `twelve_data`, `polygon_io`,
 `finnhub`, `quandl`, `iex_cloud`, `frankfurter_fx`, `coingecko`,
 `stooq`, `fred`, `gdelt`, `financial_modeling_prep`, `sec_edgar`,

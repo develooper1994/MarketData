@@ -87,6 +87,19 @@ pub fn all_capabilities() -> Vec<SourceCapability> {
             ..default_cap("binance_futures")
         },
         SourceCapability {
+            source: "binance_spot".into(),
+            asset_classes: vec!["crypto_spot".into()],
+            datasets: vec!["tick".into(), "kline".into(), "trade".into(), "orderbook".into()],
+            supports_discovery: true,
+            supports_history: true,
+            supports_realtime: true,
+            rate_limit_notes: "Public spot REST endpoints; no funding dataset on spot market.".into(),
+            quality_level: "production".into(),
+            implemented_datasets: vec!["tick".into(), "kline".into(), "trade".into(), "orderbook".into()],
+            implementation_status: "live".into(),
+            ..default_cap("binance_spot")
+        },
+        SourceCapability {
             source: "bybit_linear".into(),
             asset_classes: vec!["crypto_perpetual".into()],
             datasets: vec!["tick".into(), "kline".into(), "trade".into(), "orderbook".into(), "funding".into()],

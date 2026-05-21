@@ -337,14 +337,6 @@ fn payload_bool(payload: &Map<String, Value>, key: &str) -> Option<bool> {
     payload.get(key).and_then(Value::as_bool)
 }
 
-fn normalize_source_alias(source: &str) -> String {
-    match source.to_ascii_lowercase().as_str() {
-        "binance" => "binance_futures".to_string(),
-        "bybit" => "bybit_linear".to_string(),
-        other => other.to_string(),
-    }
-}
-
 fn execute_command(
     canonical: Option<&str>,
     command: Option<&str>,
@@ -768,19 +760,19 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
         .cloned()
         .unwrap_or_else(|| Value::Array(Vec::new()));
 
-    print_json(
-        &json!({
-            "source": source,
-            "symbol": symbol,
-            "dataset": primary_dataset,
-            "datasets": result.requested_datasets,
-            "rows": rows,
-            "rows_by_dataset": rows_by_dataset,
-            "source_issues": result.source_issues,
-            "dataset_coverage": result.dataset_coverage,
-        }),
-        false,
-    )?;
+    let mut payload = Map::new();
+    payload.insert("source".to_string(), json!(source));
+    payload.insert("symbol".to_string(), json!(symbol));
+    payload.insert("dataset".to_string(), json!(primary_dataset));
+    payload.insert("datasets".to_string(), json!(result.requested_datasets));
+    payload.insert("rows".to_string(), rows);
+    if rows_by_dataset.len() > 1 {
+        payload.insert("rows_by_dataset".to_string(), Value::Object(rows_by_dataset));
+    }
+    payload.insert("source_issues".to_string(), json!(result.source_issues));
+    payload.insert("dataset_coverage".to_string(), json!(result.dataset_coverage));
+
+    print_json(&Value::Object(payload), false)?;
     Ok(())
 }
 
@@ -914,7 +906,7 @@ fn query_source_summary(args: Vec<String>) -> Result<(), Box<dyn std::error::Err
         }
         i += 1;
     }
-    let source = normalize_source_alias(source.ok_or("--source is required")?.as_str());
+    let source = source.ok_or("--source is required")?;
     let caps = capability_map();
     let result = source_summary(&caps, &source);
     println!("{}", serde_json::to_string_pretty(&json!(result))?);
@@ -1114,11 +1106,7 @@ fn run_ingest_with_live_fetch(
 fn ingest_options_from_json_payload(
     payload: &Map<String, Value>,
 ) -> Result<IngestOptions, Box<dyn std::error::Error>> {
-    let source = normalize_source_alias(
-        payload_string(payload, "source")
-            .ok_or("source is required")?
-            .as_str(),
-    );
+    let source = payload_string(payload, "source").ok_or("source is required")?;
     let symbol = payload_string(payload, "symbol").ok_or("symbol is required")?;
     let datasets = payload
         .get("datasets")
@@ -1155,11 +1143,7 @@ fn ingest_options_from_json_payload(
 fn load_market_data_options_from_json_payload(
     payload: &Map<String, Value>,
 ) -> Result<IngestOptions, Box<dyn std::error::Error>> {
-    let source = normalize_source_alias(
-        payload_string(payload, "source")
-            .ok_or("source is required")?
-            .as_str(),
-    );
+    let source = payload_string(payload, "source").ok_or("source is required")?;
     let symbol = payload_string(payload, "symbol").ok_or("symbol is required")?;
     let dataset = payload_string(payload, "dataset").ok_or("dataset is required")?;
     Ok(IngestOptions {
@@ -1183,6 +1167,7 @@ fn discover_assets_live(source: &str, limit: usize) -> Vec<String> {
     let max_limit = limit.max(1);
     match source {
         "binance_futures" => discover_binance_futures_assets(max_limit),
+        "binance_spot" => discover_binance_spot_assets(max_limit),
         "bybit_linear" => discover_bybit_assets(max_limit),
         "coingecko" => discover_coingecko_assets(max_limit),
         "coinbase_spot" => discover_coinbase_assets(max_limit),
@@ -1281,6 +1266,7 @@ fn fetch_live_dataset(
 ) -> Result<Value, String> {
     match (source, dataset) {
         ("binance_futures", "tick") => fetch_binance_futures_tick(symbol),
+        ("binance_spot", "tick") => fetch_binance_spot_tick(symbol),
         ("coingecko", "kline") => fetch_coingecko_kline(symbol, limit),
         ("coingecko", "tick") => fetch_coingecko_tick(symbol),
         ("coinbase_spot", "orderbook") => fetch_coinbase_orderbook(symbol),
@@ -1310,6 +1296,9 @@ fn fetch_live_dataset(
         ("binance_futures", "funding") => fetch_binance_futures_funding(symbol, limit),
         ("binance_futures", "trade") => fetch_binance_futures_trade(symbol, limit),
         ("binance_futures", "orderbook") => fetch_binance_futures_orderbook(symbol),
+        ("binance_spot", "kline") => fetch_binance_spot_kline(symbol, timeframe, limit),
+        ("binance_spot", "trade") => fetch_binance_spot_trade(symbol, limit),
+        ("binance_spot", "orderbook") => fetch_binance_spot_orderbook(symbol),
         _ => Err(format!("unsupported_dataset:{dataset}")),
     }
 }
@@ -1816,6 +1805,78 @@ fn fetch_binance_futures_orderbook(symbol: &str) -> Result<Value, String> {
     fetch_json(&url, "binance_futures")
 }
 
+fn fetch_binance_spot_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Value, String> {
+    let interval = timeframe_to_binance_interval(timeframe);
+    let url = format!(
+        "https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit={}",
+        limit.max(1)
+    );
+    let payload = fetch_json(&url, "binance_spot")?;
+    let rows = payload.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    for row in rows {
+        let Some(values) = row.as_array() else { continue };
+        if values.len() < 6 {
+            continue;
+        }
+        out.push(json!([
+            values[0],
+            values[1].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
+            values[2].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
+            values[3].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
+            values[4].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
+            values[5].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+        ]));
+    }
+    Ok(Value::Array(out))
+}
+
+fn fetch_binance_spot_tick(symbol: &str) -> Result<Value, String> {
+    let url = format!("https://api.binance.com/api/v3/ticker/bookTicker?symbol={symbol}");
+    let payload = fetch_json(&url, "binance_spot")?;
+    let bid = payload
+        .get("bidPrice")
+        .and_then(Value::as_str)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let ask = payload
+        .get("askPrice")
+        .and_then(Value::as_str)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    Ok(json!([{
+        "timestamp_ms": Utc::now().timestamp_millis(),
+        "bid": bid,
+        "ask": ask,
+        "last": (bid + ask) / 2.0,
+    }]))
+}
+
+fn fetch_binance_spot_trade(symbol: &str, limit: usize) -> Result<Value, String> {
+    let url = format!(
+        "https://api.binance.com/api/v3/trades?symbol={symbol}&limit={}",
+        limit.max(1)
+    );
+    let payload = fetch_json(&url, "binance_spot")?;
+    let rows = payload.as_array().cloned().unwrap_or_default();
+    Ok(Value::Array(
+        rows.into_iter()
+            .map(|row| {
+                json!({
+                    "t": row.get("time").cloned().unwrap_or(Value::from(0_i64)),
+                    "price": row.get("price").cloned().unwrap_or(Value::String("0".to_string())),
+                    "qty": row.get("qty").cloned().unwrap_or(Value::String("0".to_string())),
+                })
+            })
+            .collect(),
+    ))
+}
+
+fn fetch_binance_spot_orderbook(symbol: &str) -> Result<Value, String> {
+    let url = format!("https://api.binance.com/api/v3/depth?symbol={symbol}&limit=50");
+    fetch_json(&url, "binance_spot")
+}
+
 fn fetch_bybit_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Value, String> {
     let interval = match timeframe {
         "1m" => "1",
@@ -2210,6 +2271,17 @@ fn discover_binance_futures_assets(limit: usize) -> Vec<String> {
         .collect()
 }
 
+    fn discover_binance_spot_assets(limit: usize) -> Vec<String> {
+        fetch_json("https://api.binance.com/api/v3/exchangeInfo", "binance_spot")
+        .ok()
+        .and_then(|payload| payload.get("symbols").and_then(Value::as_array).cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|row| row.get("symbol").and_then(Value::as_str).map(ToString::to_string))
+        .take(limit.max(1))
+        .collect()
+    }
+
 fn discover_bybit_assets(limit: usize) -> Vec<String> {
     fetch_json(
         "https://api.bybit.com/v5/market/instruments-info?category=linear",
@@ -2281,7 +2353,6 @@ fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std:
     if options.source.is_empty() {
         return Err("--source is required".into());
     }
-    options.source = normalize_source_alias(options.source.as_str());
     if options.symbol.is_empty() {
         return Err("--symbol is required".into());
     }
