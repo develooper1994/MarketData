@@ -27,6 +27,7 @@ compatibility shim that delegates every data decision to `MarketData`.
 | `provenance` | Manifest tracker for ingestion lineage |
 | `hub` | Orchestrates normalize → quality → storage → provenance |
 | `etl` | Fluent façade over `DataHub` |
+| `prelude` | Re-exports all commonly used types for easy `use market_data::prelude::*` import |
 
 ## Quick start
 
@@ -110,6 +111,10 @@ Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `rs
 ### Library usage
 
 ```rust
+// Short-form import using the prelude (recommended):
+use market_data::prelude::*;
+
+// Or import individual types:
 use market_data::{DataHub, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
 
 let mut hub = DataHub::with_components(
@@ -146,9 +151,11 @@ Keep docs intentionally small and non-duplicative:
 
 | Doc | Purpose |
 |---|---|
-| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md) | Authoritative architecture, migration ownership model, and current readiness/gap checklist |
-| [`docs/algotradeplan_integration.md`](docs/algotradeplan_integration.md) | AlgoTradePlan bridge wiring and cutover integration notes |
+| [`docs/STATUS.md`](docs/STATUS.md) | Current readiness checklist and actionable TODOs |
+| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md) | Architecture, ownership model, integration patterns, cutover steps |
+| [`docs/algotradeplan_integration.md`](docs/algotradeplan_integration.md) | AlgoTradePlan bridge wiring and contract mapping |
 | [`docs/new_project_onboarding.md`](docs/new_project_onboarding.md) | Reusable onboarding for any new consumer project |
+| [`integration/algotradeplan/migration_cutover.md`](integration/algotradeplan/migration_cutover.md) | Step-by-step destructive migration guide for AlgoTradePlan |
 
 ## Data source support (24 sources)
 
