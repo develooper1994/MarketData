@@ -41,6 +41,35 @@ fn help_flag_prints_menu() {
 }
 
 #[test]
+fn short_aliases_work_for_query_and_listing() {
+    let list_output = Command::new(bridge_bin())
+        .arg("ls")
+        .output()
+        .expect("ls alias should run");
+    assert!(list_output.status.success());
+    let list_payload: Value =
+        serde_json::from_slice(&list_output.stdout).expect("ls output should be valid json");
+    assert!(
+        list_payload
+            .as_array()
+            .is_some_and(|arr| arr.iter().any(|v| v == "binance_futures"))
+    );
+
+    let query_output = Command::new(bridge_bin())
+        .args(["qsf", "--dataset", "kline"])
+        .output()
+        .expect("qsf alias should run");
+    assert!(query_output.status.success());
+    let query_payload: Value =
+        serde_json::from_slice(&query_output.stdout).expect("qsf output should be valid json");
+    assert!(
+        query_payload
+            .as_array()
+            .is_some_and(|arr| arr.iter().any(|v| v == "binance_futures"))
+    );
+}
+
+#[test]
 fn no_args_prints_help_menu() {
     let output = Command::new(bridge_bin())
         .output()
@@ -178,6 +207,40 @@ fn ingest_surfaces_missing_dataset_issues() {
             .iter()
             .any(|issue| issue["reason"] == "missing_dataset:trade")
     );
+}
+
+#[test]
+fn ingest_accepts_repeated_dataset_flag() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ing",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--dataset",
+            "kline",
+            "--dataset",
+            "trade",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest alias command should run");
+
+    serde_json::to_writer(
+        child.stdin.take().expect("stdin should be available"),
+        &json!({
+            "kline": [[1716200000000_i64, "10", "11", "9", "10.5", "42"]],
+            "trade": [{"t": 1716200000001_i64, "price": "10.5", "qty": "0.5"}]
+        }),
+    )
+    .expect("input should serialize");
+    let output = child.wait_with_output().expect("bridge should complete");
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("json output");
+    assert_eq!(payload["dataset_coverage"]["kline"], 1);
+    assert_eq!(payload["dataset_coverage"]["trade"], 1);
 }
 
 #[test]

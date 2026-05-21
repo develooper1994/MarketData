@@ -12,9 +12,16 @@ use std::io::{self, Read};
 const BRIDGE_CONTRACT_VERSION: &str = "1";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = env::args().skip(1);
-    match args.next().as_deref() {
-        Some("help") | Some("--help") | Some("-h") => {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let command = args.first().map(String::as_str);
+    let command_args = if args.len() > 1 {
+        args[1..].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    match canonical_command(command) {
+        Some("help") => {
             println!("{}", help_text());
         }
         Some("doctor") => print_json(
@@ -38,33 +45,53 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value = serde_json::to_value(caps)?;
             println!("{}", serde_json::to_string_pretty(&value)?);
         }
-        Some("assert-contract") => assert_contract(args.collect())?,
+        Some("assert-contract") => assert_contract(command_args)?,
         Some("sources") => {
             let caps = all_capabilities();
             let names: Vec<String> = caps.into_iter().map(|c| c.source).collect();
             println!("{}", serde_json::to_string_pretty(&json!(names))?);
         }
-        Some("query-sources-for") => query_sources_for(args.collect())?,
-        Some("query-best-sources") => query_best_sources(args.collect())?,
-        Some("query-source-summary") => query_source_summary(args.collect())?,
-        Some("query-dataset-summary") => query_dataset_summary(args.collect())?,
-        Some("recommend-sources") => recommend_sources(args.collect())?,
+        Some("query-sources-for") => query_sources_for(command_args)?,
+        Some("query-best-sources") => query_best_sources(command_args)?,
+        Some("query-source-summary") => query_source_summary(command_args)?,
+        Some("query-dataset-summary") => query_dataset_summary(command_args)?,
+        Some("recommend-sources") => recommend_sources(command_args)?,
         Some("supported-use-cases") => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!(supported_use_cases()))?
             );
         }
-        Some("ingest") => ingest(parse_ingest_options(args.collect())?)?,
-        Some(command) => {
-            return Err(format!("unknown command: {command}\n\n{}", help_text()).into());
-        }
+        Some("ingest") => ingest(parse_ingest_options(command_args)?)?,
         None => {
             println!("{}", help_text());
+        }
+        Some(_) => {
+            let command = command.unwrap_or_default();
+            return Err(format!("unknown command: {command}\n\n{}", help_text()).into());
         }
     }
 
     Ok(())
+}
+
+fn canonical_command(command: Option<&str>) -> Option<&'static str> {
+    match command {
+        None => None,
+        Some("help") | Some("--help") | Some("-h") => Some("help"),
+        Some("doctor") | Some("status") => Some("doctor"),
+        Some("assert-contract") | Some("assert") => Some("assert-contract"),
+        Some("capabilities") | Some("caps") => Some("capabilities"),
+        Some("sources") | Some("ls") => Some("sources"),
+        Some("query-sources-for") | Some("qsf") => Some("query-sources-for"),
+        Some("query-best-sources") | Some("qbs") => Some("query-best-sources"),
+        Some("query-source-summary") | Some("qss") => Some("query-source-summary"),
+        Some("query-dataset-summary") | Some("qds") => Some("query-dataset-summary"),
+        Some("recommend-sources") | Some("rs") => Some("recommend-sources"),
+        Some("supported-use-cases") | Some("suc") => Some("supported-use-cases"),
+        Some("ingest") | Some("ing") => Some("ingest"),
+        Some(_) => Some("unknown"),
+    }
 }
 
 fn help_text() -> &'static str {
@@ -76,17 +103,17 @@ USAGE
   market_data_bridge --help
 
 COMMANDS
-  doctor                Health + contract info for automation and startup checks
-  assert-contract       Fail fast if the expected contract version is not matched
-  capabilities          Full provider capability metadata (all sources)
-  sources               Short source-name list for quick discovery
-  query-sources-for     Filter sources by dataset/asset class/live support
-  query-best-sources    Ranked recommendations for a dataset/use-case profile
-  query-source-summary  Explain capabilities + support status for one source
-  query-dataset-summary Explain source coverage summary for one dataset
-  supported-use-cases   List built-in recommendation flows
-  recommend-sources     Recommend sources by use-case
-  ingest                Normalize + quality-check + storage + provenance
+  doctor (status)                Health + contract info for automation and startup checks
+  assert-contract (assert)       Fail fast if the expected contract version is not matched
+  capabilities (caps)            Full provider capability metadata (all sources)
+  sources (ls)                   Short source-name list for quick discovery
+  query-sources-for (qsf)        Filter sources by dataset/asset class/live support
+  query-best-sources (qbs)       Ranked recommendations for a dataset/use-case profile
+  query-source-summary (qss)     Explain capabilities + support status for one source
+  query-dataset-summary (qds)    Explain source coverage summary for one dataset
+  supported-use-cases (suc)      List built-in recommendation flows
+  recommend-sources (rs)         Recommend sources by use-case
+  ingest (ing)                   Normalize + quality-check + storage + provenance
 
 COMMON FLOWS
   1) Verify bridge compatibility
@@ -370,6 +397,11 @@ fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std:
                     .filter(|dataset| !dataset.is_empty())
                     .map(ToString::to_string)
                     .collect();
+            }
+            "--dataset" => {
+                options
+                    .datasets
+                    .push(next_value(&args, &mut index, flag)?.to_string());
             }
             "--asset-type" => {
                 options.asset_type = next_value(&args, &mut index, flag)?.to_string();

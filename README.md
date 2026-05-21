@@ -42,6 +42,7 @@ the canonical docs below.
 ```bash
 # detailed command menu + common flows
 cargo run --quiet --bin market_data_bridge -- help
+# short aliases are supported too (for speed): ls, qsf, qbs, qss, qds, rs, suc, ing
 
 # contract/health check
 cargo run --quiet --bin market_data_bridge -- doctor
@@ -85,6 +86,8 @@ printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
 | `supported-use-cases` | Built-in recommendation flows |
 | `recommend-sources --use-case <name> [--limit N]` | Use-case recommendation list |
 | `ingest --source <name> --symbol <id> --datasets <csv>` | Normalize + quality + storage + provenance |
+
+Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `rs`, `suc`, `ing`
 
 ### Common CLI flows
 
