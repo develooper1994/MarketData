@@ -479,7 +479,7 @@ mod tests {
         assert!(sources.contains(&"binance_futures"));
         assert!(sources.contains(&"tefas_public"));
         assert!(sources.contains(&"offline_fallback"));
-        assert_eq!(caps.len(), 24);
+        assert_eq!(caps.len(), 25);
     }
 
     #[test]

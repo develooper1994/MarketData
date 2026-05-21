@@ -386,9 +386,10 @@ fn live_fetch_requires_source_flag() {
         .output()
         .expect("live-fetch command should run");
 
-    assert!(!output.status.success());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("--source is required"));
+    // Source is now optional: the bridge will attempt auto-selection/fallback.
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
+    assert!(payload.get("source").is_some());
 }
 
 #[test]

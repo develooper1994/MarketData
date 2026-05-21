@@ -283,12 +283,16 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
         }
         "ingest" => {
             let options = ingest_options_from_json_payload(&payload)?;
-            let result = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
-            print_json(&serde_json::to_value(result)?, false)?;
+            let (result, meta) = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
+            let mut value = serde_json::to_value(result)?;
+            if let Value::Object(ref mut obj) = value {
+                for (k, v) in meta { obj.insert(k, v); }
+            }
+            print_json(&value, false)?;
         }
         "load_market_data" => {
             let options = load_market_data_options_from_json_payload(&payload)?;
-            let result = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
+            let (result, _meta) = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
             let dataset = result
                 .requested_datasets
                 .first()
@@ -729,7 +733,7 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
     let symbol = options.symbol.clone();
     let requested_datasets = options.datasets.clone();
 
-    let result = run_ingest_with_live_fetch(options, None)?;
+    let (result, meta) = run_ingest_with_live_fetch(options, None)?;
     let mut rows_by_dataset = Map::new();
     for dataset in &result.requested_datasets {
         let rows: Vec<Value> = result
@@ -761,7 +765,13 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
         .unwrap_or_else(|| Value::Array(Vec::new()));
 
     let mut payload = Map::new();
-    payload.insert("source".to_string(), json!(source));
+    // selected_source in metadata takes precedence when auto-selection was used
+    let selected_source = meta
+        .get("selected_source")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| source.clone());
+    payload.insert("source".to_string(), json!(selected_source));
     payload.insert("symbol".to_string(), json!(symbol));
     payload.insert("dataset".to_string(), json!(primary_dataset));
     payload.insert("datasets".to_string(), json!(result.requested_datasets));
@@ -771,6 +781,12 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
     }
     payload.insert("source_issues".to_string(), json!(result.source_issues));
     payload.insert("dataset_coverage".to_string(), json!(result.dataset_coverage));
+    // Merge selection metadata into the live-fetch payload when present
+    for key in ["selection_mode", "attempted_sources", "fallback_used", "fallback_reasons", "warnings"] {
+        if let Some(val) = meta.get(key) {
+            payload.insert(key.to_string(), val.clone());
+        }
+    }
 
     print_json(&Value::Object(payload), false)?;
     Ok(())
@@ -1038,7 +1054,7 @@ fn ingest(
 fn run_ingest_with_live_fetch(
     options: IngestOptions,
     fetch_options: Option<&Value>,
-) -> Result<market_data::IngestResult, Box<dyn std::error::Error>> {
+) -> Result<(market_data::IngestResult, Map<String, Value>), Box<dyn std::error::Error>> {
     let storage = if let Some(record_root) = &options.record_root {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
     } else {
@@ -1048,6 +1064,8 @@ fn run_ingest_with_live_fetch(
     let mut hub = DataHub::with_components(storage, provenance, SourceAdapterRegistry::default());
     let mut extra_issues: Vec<String> = Vec::new();
 
+    let mut metadata: Map<String, Value> = Map::new();
+
     let raw_datasets = fetch_options
         .and_then(|value| value.get("raw_datasets"))
         .and_then(Value::as_object)
@@ -1056,32 +1074,138 @@ fn run_ingest_with_live_fetch(
         .unwrap_or_default();
 
     let mut result = if raw_datasets.is_empty() {
-        let (fetched, issues) = fetch_live_raw_datasets(
-            &options.source,
-            &options.symbol,
-            &options.datasets,
-            &options.timeframe,
-            options.limit,
-        );
-        extra_issues.extend(issues);
-        if fetched.is_empty() && (options.source == "offline" || options.source == "offline_fallback") {
-            hub.ingest(
+        // Auto-selection / fallback when source is empty or explicitly set to "auto"
+        if options.source.is_empty() || options.source == "auto" {
+            let caps = capability_map();
+            let asset_class = if options.asset_type != "multi_asset" && !options.asset_type.is_empty() {
+                Some(options.asset_type.as_str())
+            } else {
+                None
+            };
+            let primary_dataset = options
+                .datasets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "kline".to_string());
+
+            let candidates = best_sources_for(
+                &caps,
+                &primary_dataset,
+                asset_class,
+                true,
+                true,
+                false,
+                None,
+            );
+
+            let mut attempted_sources: Vec<Value> = Vec::new();
+            let mut fallback_reasons: Vec<Value> = Vec::new();
+            let mut selected_source = String::new();
+            let mut fetched_map: HashMap<String, Value> = HashMap::new();
+
+            for row in candidates {
+                if let Some(candidate) = row.get("source") {
+                    let candidate = candidate.clone();
+                    // ensure candidate supports all requested datasets
+                    if let Some(cap) = caps.get(candidate.as_str()) {
+                        let mut supports_all = true;
+                        for ds in &options.datasets {
+                            let canonical = market_data::canonical_dataset_name(ds).to_string();
+                            if !cap.implemented_datasets.iter().any(|d| d == &canonical) {
+                                supports_all = false;
+                                break;
+                            }
+                        }
+                        if !supports_all {
+                            continue;
+                        }
+
+                        attempted_sources.push(Value::String(candidate.clone()));
+                        let (fetched, issues) = fetch_live_raw_datasets(
+                            &candidate,
+                            &options.symbol,
+                            &options.datasets,
+                            &options.timeframe,
+                            options.limit,
+                        );
+                        if !issues.is_empty() {
+                            fallback_reasons.push(Value::String(format!("{}:{}", candidate, issues.join("|"))));
+                        }
+                        extra_issues.extend(issues.clone());
+                        if !fetched.is_empty() {
+                            selected_source = candidate.clone();
+                            fetched_map = fetched;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            metadata.insert("selection_mode".to_string(), json!("auto"));
+            metadata.insert("attempted_sources".to_string(), Value::Array(attempted_sources.clone()));
+            metadata.insert("fallback_reasons".to_string(), Value::Array(fallback_reasons.clone()));
+            metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+
+            if selected_source.is_empty() {
+                metadata.insert("selected_source".to_string(), json!("offline_fallback"));
+                metadata.insert("fallback_used".to_string(), json!(true));
+                hub.ingest(
+                    "offline_fallback",
+                    &options.symbol,
+                    options.datasets,
+                    &options.timeframe,
+                    options.limit,
+                    options.store,
+                )?
+            } else {
+                metadata.insert("selected_source".to_string(), json!(selected_source.clone()));
+                metadata.insert("fallback_used".to_string(), json!(true));
+                hub.ingest_from_raw_with_asset_type(
+                    &selected_source,
+                    &options.symbol,
+                    options.datasets,
+                    fetched_map,
+                    options.store,
+                    &options.asset_type,
+                )?
+            }
+        } else {
+            // explicit source provided: behave as before
+            let (fetched, issues) = fetch_live_raw_datasets(
                 &options.source,
                 &options.symbol,
-                options.datasets,
+                &options.datasets,
                 &options.timeframe,
                 options.limit,
-                options.store,
-            )?
-        } else {
-            hub.ingest_from_raw_with_asset_type(
-                &options.source,
-                &options.symbol,
-                options.datasets,
-                fetched,
-                options.store,
-                &options.asset_type,
-            )?
+            );
+            extra_issues.extend(issues.clone());
+
+            metadata.insert("selection_mode".to_string(), json!("explicit"));
+            metadata.insert("selected_source".to_string(), json!(options.source.clone()));
+            metadata.insert("attempted_sources".to_string(), Value::Array(vec![json!(options.source.clone())]));
+            metadata.insert("fallback_used".to_string(), json!(false));
+            metadata.insert("fallback_reasons".to_string(), Value::Array(Vec::new()));
+            metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+
+            if fetched.is_empty() && (options.source == "offline" || options.source == "offline_fallback") {
+                hub.ingest(
+                    &options.source,
+                    &options.symbol,
+                    options.datasets,
+                    &options.timeframe,
+                    options.limit,
+                    options.store,
+                )?
+            } else {
+                hub.ingest_from_raw_with_asset_type(
+                    &options.source,
+                    &options.symbol,
+                    options.datasets,
+                    fetched,
+                    options.store,
+                    &options.asset_type,
+                )?
+            }
         }
     } else {
         hub.ingest_from_raw_with_asset_type(
@@ -1094,13 +1218,19 @@ fn run_ingest_with_live_fetch(
         )?
     };
 
+    let source_for_issues = metadata
+        .get("selected_source")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| options.source.clone());
+
     for reason in extra_issues {
         result.source_issues.push(std::collections::BTreeMap::from([
-            ("source".to_string(), options.source.clone()),
+            ("source".to_string(), source_for_issues.clone()),
             ("reason".to_string(), reason),
         ]));
     }
-    Ok(result)
+    Ok((result, metadata))
 }
 
 fn ingest_options_from_json_payload(
@@ -2350,9 +2480,6 @@ fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std:
         index += 1;
     }
 
-    if options.source.is_empty() {
-        return Err("--source is required".into());
-    }
     if options.symbol.is_empty() {
         return Err("--symbol is required".into());
     }
