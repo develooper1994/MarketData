@@ -7,7 +7,7 @@ use market_data::{
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::env;
-use std::io::{self, Read};
+use std::io::{self, IsTerminal, Read};
 
 /// Increment this any time the bridge JSON contract changes incompatibly.
 const BRIDGE_CONTRACT_VERSION: &str = "1";
@@ -21,7 +21,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Vec::new()
     };
 
-    match canonical_command(command) {
+    if command.is_none() && try_handle_stdin_request_mode()? {
+        return Ok(());
+    }
+
+    execute_command(canonical_command(command), command, command_args, None)
+}
+
+fn execute_command(
+    canonical: Option<&str>,
+    command: Option<&str>,
+    command_args: Vec<String>,
+    ingest_input_override: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match canonical {
         Some("help") => {
             println!("{}", help_text());
         }
@@ -64,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 serde_json::to_string_pretty(&json!(supported_use_cases()))?
             );
         }
-        Some("ingest") => ingest(parse_ingest_options(command_args)?)?,
+        Some("ingest") => ingest(parse_ingest_options(command_args)?, ingest_input_override)?,
         None => {
             println!("{}", help_text());
         }
@@ -79,6 +92,210 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn try_handle_stdin_request_mode() -> Result<bool, Box<dyn std::error::Error>> {
+    if io::stdin().is_terminal() {
+        return Ok(false);
+    }
+
+    let mut request = String::new();
+    io::stdin().read_to_string(&mut request)?;
+    if request.trim().is_empty() {
+        return Ok(false);
+    }
+
+    let value: Value = serde_json::from_str(&request)
+        .map_err(|error| format!("failed to parse stdin request json: {error}"))?;
+    let object = value
+        .as_object()
+        .ok_or("stdin request must be a JSON object")?;
+    let command = object
+        .get("command")
+        .or_else(|| object.get("cmd"))
+        .or_else(|| object.get("method"))
+        .or_else(|| object.get("action"))
+        .and_then(Value::as_str)
+        .ok_or("stdin request must include command")?;
+
+    let args = request_args(command, object)?;
+    let ingest_input_override = if command == "ingest" {
+        ingest_request_payload(object)?
+    } else {
+        None
+    };
+
+    execute_command(
+        canonical_command(Some(command)),
+        Some(command),
+        args,
+        ingest_input_override,
+    )?;
+    Ok(true)
+}
+
+fn request_args(
+    command: &str,
+    request: &serde_json::Map<String, Value>,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    if let Some(args) = request.get("args")
+        && let Some(array) = args.as_array()
+    {
+        return array
+            .iter()
+            .map(request_value_to_arg)
+            .collect::<Result<Vec<_>, _>>();
+    }
+
+    let options = request
+        .get("args")
+        .and_then(Value::as_object)
+        .or_else(|| request.get("options").and_then(Value::as_object))
+        .unwrap_or(request);
+
+    let args = match command {
+        "assert-contract" | "assert" => option_args(options, &[("expected", "--expected")], &[])?,
+        "query-sources-for" | "qsf" => option_args(
+            options,
+            &[("dataset", "--dataset"), ("asset_class", "--asset-class")],
+            &[("require_live", "--require-live")],
+        )?,
+        "query-best-sources" | "qbs" => option_args(
+            options,
+            &[
+                ("dataset", "--dataset"),
+                ("asset_class", "--asset-class"),
+                ("limit", "--limit"),
+            ],
+            &[
+                ("disallow_api_key", "--disallow-api-key"),
+                ("no_prefer_live", "--no-prefer-live"),
+                ("include_metadata_only", "--include-metadata-only"),
+            ],
+        )?,
+        "query-source-summary" | "qss" => option_args(options, &[("source", "--source")], &[])?,
+        "query-dataset-summary" | "qds" => option_args(options, &[("dataset", "--dataset")], &[])?,
+        "recommend-sources" | "rs" => option_args(
+            options,
+            &[("use_case", "--use-case"), ("limit", "--limit")],
+            &[
+                ("disallow_api_key", "--disallow-api-key"),
+                ("no_prefer_live", "--no-prefer-live"),
+            ],
+        )?,
+        "ingest" | "ing" => ingest_option_args(options)?,
+        _ => Vec::new(),
+    };
+    Ok(args)
+}
+
+fn request_value_to_arg(value: &Value) -> Result<String, Box<dyn std::error::Error>> {
+    match value {
+        Value::String(v) => Ok(v.clone()),
+        Value::Number(v) => Ok(v.to_string()),
+        Value::Bool(v) => Ok(v.to_string()),
+        _ => Err("request args array values must be string/number/bool".into()),
+    }
+}
+
+fn option_args(
+    options: &serde_json::Map<String, Value>,
+    value_options: &[(&str, &str)],
+    bool_flags: &[(&str, &str)],
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut args = Vec::new();
+    for (key, flag) in value_options {
+        if let Some(value) = request_option(options, key) {
+            args.push((*flag).to_string());
+            args.push(request_value_to_arg(value)?);
+        }
+    }
+    for (key, flag) in bool_flags {
+        if request_option(options, key)
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            args.push((*flag).to_string());
+        }
+    }
+    Ok(args)
+}
+
+fn ingest_option_args(
+    options: &serde_json::Map<String, Value>,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let mut args = option_args(
+        options,
+        &[
+            ("source", "--source"),
+            ("symbol", "--symbol"),
+            ("asset_type", "--asset-type"),
+            ("record_root", "--record-root"),
+            ("manifest_root", "--manifest-root"),
+        ],
+        &[("store", "--store")],
+    )?;
+
+    if let Some(datasets) = request_option(options, "datasets") {
+        let datasets_arg = match datasets {
+            Value::String(v) => v.clone(),
+            Value::Array(values) => values
+                .iter()
+                .map(request_value_to_arg)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(","),
+            _ => return Err("datasets must be string or array".into()),
+        };
+        args.push("--datasets".to_string());
+        args.push(datasets_arg);
+    }
+
+    if let Some(dataset) = request_option(options, "dataset") {
+        match dataset {
+            Value::String(v) => {
+                args.push("--dataset".to_string());
+                args.push(v.clone());
+            }
+            Value::Array(values) => {
+                for value in values {
+                    args.push("--dataset".to_string());
+                    args.push(request_value_to_arg(value)?);
+                }
+            }
+            _ => return Err("dataset must be string or array".into()),
+        }
+    }
+
+    Ok(args)
+}
+
+fn ingest_request_payload(
+    request: &serde_json::Map<String, Value>,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if let Some(value) = request_option(request, "raw_datasets")
+        .or_else(|| request.get("raw"))
+        .or_else(|| request.get("payload"))
+    {
+        return Ok(Some(serde_json::to_string(value)?));
+    }
+
+    if let Some(stdin) = request.get("stdin") {
+        return match stdin {
+            Value::String(v) => Ok(Some(v.clone())),
+            _ => Ok(Some(serde_json::to_string(stdin)?)),
+        };
+    }
+
+    Ok(None)
+}
+
+fn request_option<'a>(options: &'a serde_json::Map<String, Value>, key: &str) -> Option<&'a Value> {
+    let kebab = key.replace('_', "-");
+    let snake = key.replace('-', "_");
+    options
+        .get(key)
+        .or_else(|| options.get(kebab.as_str()))
+        .or_else(|| options.get(snake.as_str()))
 }
 
 fn canonical_command(command: Option<&str>) -> Option<&'static str> {
@@ -364,15 +581,10 @@ struct IngestOptions {
     manifest_root: Option<String>,
 }
 
-fn ingest(options: IngestOptions) -> Result<(), Box<dyn std::error::Error>> {
-    let mut raw_input = String::new();
-    io::stdin().read_to_string(&mut raw_input)?;
-    let raw_datasets: HashMap<String, Value> = if raw_input.trim().is_empty() {
-        HashMap::new()
-    } else {
-        serde_json::from_str(&raw_input)?
-    };
-
+fn ingest(
+    options: IngestOptions,
+    raw_input_override: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let storage = if let Some(record_root) = &options.record_root {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
     } else {
@@ -380,14 +592,39 @@ fn ingest(options: IngestOptions) -> Result<(), Box<dyn std::error::Error>> {
     };
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
     let mut hub = DataHub::with_components(storage, provenance, SourceAdapterRegistry::default());
-    let result = hub.ingest_from_raw_with_asset_type(
-        &options.source,
-        &options.symbol,
-        options.datasets,
-        raw_datasets,
-        options.store,
-        &options.asset_type,
-    )?;
+    let raw_input = if let Some(raw_input_override) = raw_input_override {
+        raw_input_override
+    } else {
+        let mut raw_input = String::new();
+        io::stdin().read_to_string(&mut raw_input)?;
+        raw_input
+    };
+    let result = if raw_input.trim().is_empty() {
+        let mut result = hub.ingest(
+            &options.source,
+            &options.symbol,
+            options.datasets,
+            "1m",
+            500,
+            options.store,
+        )?;
+        if options.asset_type != "multi_asset" {
+            for record in &mut result.records {
+                record.asset_type = options.asset_type.clone();
+            }
+        }
+        result
+    } else {
+        let raw_datasets: HashMap<String, Value> = serde_json::from_str(&raw_input)?;
+        hub.ingest_from_raw_with_asset_type(
+            &options.source,
+            &options.symbol,
+            options.datasets,
+            raw_datasets,
+            options.store,
+            &options.asset_type,
+        )?
+    };
 
     print_json(&serde_json::to_value(result)?, false)?;
     Ok(())

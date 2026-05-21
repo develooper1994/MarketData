@@ -61,6 +61,8 @@ Build + binary setup for AlgoTradePlan integration:
 ```bash
 cargo build --release --bin market_data_bridge
 export MARKET_DATA_BIN="$PWD/target/release/market_data_bridge"
+# commandless stdin-json request mode used by thin bridge clients:
+printf '{"command":"doctor"}' | "$MARKET_DATA_BIN"
 ```
 
 ---

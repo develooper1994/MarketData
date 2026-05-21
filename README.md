@@ -48,6 +48,8 @@ cargo run --quiet --bin market_data_bridge -- help
 # contract/health check
 cargo run --quiet --bin market_data_bridge -- doctor
 cargo run --quiet --bin market_data_bridge -- assert-contract --expected 1
+# commandless stdin-json request mode (thin client parity)
+printf '{"command":"doctor"}' | cargo run --quiet --bin market_data_bridge --
 
 # source discovery
 cargo run --quiet --bin market_data_bridge -- sources
@@ -110,6 +112,7 @@ Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `qd
    - `market_data_bridge recommend-sources --use-case crypto_backtest --limit 5`
 4. Run full ingest pipeline:
    - `printf '{"kline":[[1716200000000,100,110,90,105,1000]]}' | market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot`
+   - `market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot` (with empty stdin uses deterministic offline adapter payload)
 
 ### Library usage
 
