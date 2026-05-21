@@ -19,9 +19,9 @@ pub use hub::{DataHub, HubError, RawSourceAdapter, SourceAdapterRegistry};
 pub use provenance::ManifestProvenanceTracker;
 pub use quality::CanonicalDataQuality;
 pub use query::{
-    asset_status_for_source, available_datasets, best_sources_for, dataset_status_for_source,
-    dataset_summary, recommend_sources_for_use_case, source_summary, sources_for,
-    supported_use_cases,
+    asset_status_for_source, available_datasets, best_sources_for, dataset_source_matrix,
+    dataset_status_for_source, dataset_summary, recommend_sources_for_use_case, source_summary,
+    sources_for, supported_use_cases,
 };
 pub use storage::{InMemoryStorage, LocalArtifactStorage, StorageBackend};
 
@@ -43,8 +43,8 @@ pub mod prelude {
     pub use crate::hub::{DataHub, HubError, RawSourceAdapter, SourceAdapterRegistry};
     pub use crate::provenance::ManifestProvenanceTracker;
     pub use crate::query::{
-        best_sources_for, dataset_summary, recommend_sources_for_use_case, source_summary,
-        sources_for, supported_use_cases,
+        best_sources_for, dataset_source_matrix, dataset_summary, recommend_sources_for_use_case,
+        source_summary, sources_for, supported_use_cases,
     };
     pub use crate::storage::{InMemoryStorage, LocalArtifactStorage, StorageBackend};
 }

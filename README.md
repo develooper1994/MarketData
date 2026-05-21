@@ -43,7 +43,7 @@ the canonical docs below.
 ```bash
 # detailed command menu + common flows
 cargo run --quiet --bin market_data_bridge -- help
-# short aliases are supported too (for speed): ls, qsf, qbs, qss, qds, rs, suc, ing
+# short aliases are supported too (for speed): ls, qsf, qbs, qss, qds, qdm, rs, suc, ing
 
 # contract/health check
 cargo run --quiet --bin market_data_bridge -- doctor
@@ -59,6 +59,7 @@ cargo run --quiet --bin market_data_bridge -- query-best-sources \
   --dataset kline --asset-class crypto_spot --limit 5
 cargo run --quiet --bin market_data_bridge -- query-source-summary --source binance_futures
 cargo run --quiet --bin market_data_bridge -- query-dataset-summary --dataset kline
+cargo run --quiet --bin market_data_bridge -- query-dataset-matrix
 cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypto_backtest --limit 5
 cargo run --quiet --bin market_data_bridge -- supported-use-cases
 
@@ -84,11 +85,12 @@ printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
 | `query-best-sources --dataset <name> [--asset-class <name>] [--limit N]` | Ranked source recommendations |
 | `query-source-summary --source <name>` | Human-readable source summary |
 | `query-dataset-summary --dataset <name>` | Dataset-level coverage summary |
+| `query-dataset-matrix` | Machine-readable dataset-to-source coverage matrix |
 | `supported-use-cases` | Built-in recommendation flows |
 | `recommend-sources --use-case <name> [--limit N]` | Use-case recommendation list |
 | `ingest --source <name> --symbol <id> --datasets <csv>` | Normalize + quality + storage + provenance |
 
-Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `rs`, `suc`, `ing`
+Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `qdm`, `rs`, `suc`, `ing`
 
 ### Common CLI flows
 
@@ -103,6 +105,7 @@ Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `rs
    - `market_data_bridge query-best-sources --dataset kline --asset-class crypto_spot --limit 5`
    - `market_data_bridge query-source-summary --source binance_futures`
    - `market_data_bridge query-dataset-summary --dataset kline`
+   - `market_data_bridge query-dataset-matrix`
    - `market_data_bridge supported-use-cases`
    - `market_data_bridge recommend-sources --use-case crypto_backtest --limit 5`
 4. Run full ingest pipeline:

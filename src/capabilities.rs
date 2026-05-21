@@ -41,11 +41,22 @@ fn default_status_live() -> String {
 /// Canonical dataset-name aliases (e.g. "ohlcv" → "kline").
 pub const DATASET_ALIASES: &[(&str, &str)] = &[
     ("ohlcv", "kline"),
+    ("candle", "kline"),
+    ("candles", "kline"),
     ("ticker", "tick"),
+    ("quote", "tick"),
     ("trades", "trade"),
+    ("fills", "trade"),
     ("book", "orderbook"),
+    ("order_book", "orderbook"),
+    ("funding_rate", "funding"),
+    ("headlines", "news"),
     ("macro_snapshot", "macro"),
     ("macro_series", "macro"),
+    ("economic", "macro"),
+    ("fundamental", "fundamentals"),
+    ("corp_actions", "corporate_actions"),
+    ("corporate_action", "corporate_actions"),
 ];
 
 /// Resolve a raw dataset name to its canonical form.
@@ -471,7 +482,15 @@ mod tests {
     #[test]
     fn canonical_dataset_name_resolves_aliases() {
         assert_eq!(canonical_dataset_name("ohlcv"), "kline");
+        assert_eq!(canonical_dataset_name("candles"), "kline");
         assert_eq!(canonical_dataset_name("ticker"), "tick");
+        assert_eq!(canonical_dataset_name("fills"), "trade");
+        assert_eq!(canonical_dataset_name("order_book"), "orderbook");
+        assert_eq!(canonical_dataset_name("funding_rate"), "funding");
+        assert_eq!(canonical_dataset_name("headlines"), "news");
+        assert_eq!(canonical_dataset_name("economic"), "macro");
+        assert_eq!(canonical_dataset_name("fundamental"), "fundamentals");
+        assert_eq!(canonical_dataset_name("corp_actions"), "corporate_actions");
         assert_eq!(canonical_dataset_name("kline"), "kline");
         assert_eq!(canonical_dataset_name("unknown_ds"), "unknown_ds");
     }

@@ -17,7 +17,9 @@ Quick-reference status for the single-data-layer migration.
 - [x] Fluent ETL façade (`Etl`)
 - [x] 24-source capability registry (`src/capabilities.rs`)
 - [x] Source query/recommendation helpers (`src/query.rs`)
+- [x] Machine-readable dataset/source coverage matrix (`query-dataset-matrix`)
 - [x] Canonical data contracts (`src/contracts.rs`)
+- [x] Offline reference adapter registered by default for safe local fetch/discovery smoke paths (`SourceAdapterRegistry::default()`)
 - [x] `market_data_bridge` CLI with `help`, `doctor`, `assert-contract`, `sources`, `capabilities`, `query-sources-for`, `query-best-sources`, `query-source-summary`, `query-dataset-summary`, `supported-use-cases`, `recommend-sources`, `ingest`
 - [x] Short command aliases (`ls`, `qsf`, `qbs`, `qss`, `qds`, `rs`, `suc`, `ing`, `status`, `assert`, `caps`)
 - [x] Bridge contract versioning (`BRIDGE_CONTRACT_VERSION = "1"`)
@@ -34,7 +36,7 @@ Quick-reference status for the single-data-layer migration.
 
 ### Provider / Adapter runtime
 
-- [ ] **Register production-grade provider adapters** in `SourceAdapterRegistry::default()` so live fetch works without a caller-supplied payload (e.g. a real Binance, Yahoo, or TEFAS HTTP adapter)
+- [ ] **Replace offline reference defaults with production-grade provider adapters** in `SourceAdapterRegistry::default()` so live fetch works without a caller-supplied payload (e.g. hardened Binance, Yahoo, or TEFAS HTTP adapters)
 - [ ] **Add live-fetch path** to `DataHub` / bridge `ingest` — today, ingestion requires caller to supply raw JSON; a real adapter fetch path needs to be wired
 - [ ] **Retry / backoff / rate-limiting** for live HTTP adapters
 - [ ] **Credentials / config model** — how live adapters discover API keys (env vars, config file, or secret store)
