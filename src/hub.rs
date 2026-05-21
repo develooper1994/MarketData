@@ -169,26 +169,13 @@ impl DataHub {
         limit: usize,
         store: bool,
     ) -> Result<IngestResult, HubError> {
-        self.ingest_with_asset_type(source, symbol, datasets, timeframe, limit, store, "multi_asset")
-    }
-
-    pub fn ingest_with_asset_type(
-        &mut self,
-        source: &str,
-        symbol: &str,
-        datasets: Vec<String>,
-        timeframe: &str,
-        limit: usize,
-        store: bool,
-        asset_type: &str,
-    ) -> Result<IngestResult, HubError> {
         let adapter = self
             .adapters
             .get(source)
             .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
 
         let raw = adapter.fetch_raw(symbol, &datasets, timeframe, limit);
-        self.ingest_from_raw_with_asset_type(source, symbol, datasets, raw, store, asset_type)
+        self.ingest_from_raw(source, symbol, datasets, raw, store)
     }
 
     pub fn ingest_from_raw(

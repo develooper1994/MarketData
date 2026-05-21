@@ -138,13 +138,13 @@ fn request_args(
     command: &str,
     request: &serde_json::Map<String, Value>,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    if let Some(args) = request.get("args") {
-        if let Some(array) = args.as_array() {
-            return Ok(array
-                .iter()
-                .map(request_value_to_arg)
-                .collect::<Result<Vec<_>, _>>()?);
-        }
+    if let Some(args) = request.get("args")
+        && let Some(array) = args.as_array()
+    {
+        return array
+            .iter()
+            .map(request_value_to_arg)
+            .collect::<Result<Vec<_>, _>>();
     }
 
     let options = request
@@ -174,13 +174,14 @@ fn request_args(
             ],
         )?,
         "query-source-summary" | "qss" => option_args(options, &[("source", "--source")], &[])?,
-        "query-dataset-summary" | "qds" => {
-            option_args(options, &[("dataset", "--dataset")], &[])?
-        }
+        "query-dataset-summary" | "qds" => option_args(options, &[("dataset", "--dataset")], &[])?,
         "recommend-sources" | "rs" => option_args(
             options,
             &[("use_case", "--use-case"), ("limit", "--limit")],
-            &[("disallow_api_key", "--disallow-api-key"), ("no_prefer_live", "--no-prefer-live")],
+            &[
+                ("disallow_api_key", "--disallow-api-key"),
+                ("no_prefer_live", "--no-prefer-live"),
+            ],
         )?,
         "ingest" | "ing" => ingest_option_args(options)?,
         _ => Vec::new(),
@@ -288,10 +289,7 @@ fn ingest_request_payload(
     Ok(None)
 }
 
-fn request_option<'a>(
-    options: &'a serde_json::Map<String, Value>,
-    key: &str,
-) -> Option<&'a Value> {
+fn request_option<'a>(options: &'a serde_json::Map<String, Value>, key: &str) -> Option<&'a Value> {
     let kebab = key.replace('_', "-");
     let snake = key.replace('-', "_");
     options
@@ -602,15 +600,20 @@ fn ingest(
         raw_input
     };
     let result = if raw_input.trim().is_empty() {
-        hub.ingest_with_asset_type(
+        let mut result = hub.ingest(
             &options.source,
             &options.symbol,
             options.datasets,
             "1m",
             500,
             options.store,
-            &options.asset_type,
-        )?
+        )?;
+        if options.asset_type != "multi_asset" {
+            for record in &mut result.records {
+                record.asset_type = options.asset_type.clone();
+            }
+        }
+        result
     } else {
         let raw_datasets: HashMap<String, Value> = serde_json::from_str(&raw_input)?;
         hub.ingest_from_raw_with_asset_type(
