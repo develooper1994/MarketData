@@ -432,8 +432,9 @@ The following documents must exist and stay current:
 
 | Document | Location | Owner | What it covers |
 |---|---|---|---|
+| Repository quick start | `README.md` | MarketData | CLI quick use, command cheatsheet, common flows, doc index |
 | This migration plan | `docs/standalone_data_layer_migration_plan.md` | MarketData | Architecture, responsibilities, migration sequence, acceptance criteria |
-| Integration guide | `docs/algotradeplan_integration.md` | MarketData | Architecture diagram, contract mapping, CLI reference, cutover steps |
+| Integration guide | `docs/algotradeplan_integration.md` | MarketData | Architecture diagram, contract mapping, cutover steps |
 | New-project onboarding | `docs/new_project_onboarding.md` | MarketData | How any project integrates (Rust, subprocess, future gRPC) |
 | Cutover guide | `integration/algotradeplan/migration_cutover.md` | MarketData | Step-by-step destructive migration instructions for AlgoTradePlan |
 | Bridge shim | `integration/algotradeplan/hub_bridge.py` | MarketData | Drop-in `hub.py` replacement; reference subprocess wrapper |
@@ -528,3 +529,66 @@ Any future project consumes `MarketData` using one of three patterns:
 This ensures provider logic, normalization policy, quality policy, and
 provenance auditing stay centralised in `MarketData` and never fragment back
 into individual consumer projects.
+
+---
+
+## 11) Current readiness, gap summary, and checklist
+
+### Executive status
+
+**Short answer:** `MarketData` is strong on canonical processing and integration
+contracts, but it is **not yet a complete drop-in replacement for every
+data-layer responsibility** across `AlgoTradePlan` and future projects.
+
+It can already be used as the core data platform for
+normalize/quality/storage/provenance and capability discovery/query, but a full
+cutover still needs adapter/runtime and platform-hardening work.
+
+### Actionable implementation roadmap
+
+- [x] Keep provider/capability/query/recommendation logic centralized in this repo (`src/capabilities.rs`, `src/query.rs`, bridge query commands).
+- [x] Keep bridge discoverability high with `help`, `doctor`, `assert-contract`, query/recommend, and ingest flows.
+- [x] Keep docs consolidated into a smaller canonical set: `README` + migration plan + integration guide + onboarding + cutover guide.
+- [ ] Register production-grade provider adapters by default in `SourceAdapterRegistry::default()`.
+- [ ] Add provider-fetch runtime path (not only caller-supplied raw payload ingestion).
+- [ ] Expand storage backends for production persistence requirements.
+- [ ] Add cross-project compatibility validation (at least one non-AlgoTradePlan consumer in CI).
+- [ ] Complete end-to-end parity tests for all consumer-critical datasets/use-cases.
+
+### What is fully covered today
+
+- Canonical normalization for 9 dataset types.
+- Quality checks including monotonic timestamp and OHLCV checks.
+- Storage layer with in-memory + local JSONL artifact support.
+- Provenance tracking with manifest capture.
+- Rust ingestion orchestration: normalize → quality → storage → provenance.
+- Canonical contracts and bridge contract pinning.
+- Capability registry + query helpers with 24-source metadata model.
+- Bridge CLI for polyglot integration.
+- AlgoTradePlan compatibility shim for subprocess-based integration.
+
+### What is partial or missing
+
+1. Provider/adapter runtime coverage is incomplete.
+2. Query/recommendation centralization is good, but still needs operational hardening.
+3. Multi-project platform completeness is not finished (`gRPC`, production storage backends, broader consumer certification).
+
+### Acceptance checklist for sole-platform status
+
+- [ ] All required provider adapters are implemented in MarketData Rust and enabled in default runtime registry.
+- [ ] Consumers no longer own raw-fetch logic for production paths (only thin transport/client wrappers remain).
+- [ ] Bridge/API exposes authoritative capability/query/recommendation/explanation operations.
+- [ ] All required datasets for target consumers pass end-to-end ingestion parity tests.
+- [ ] Contract version checks (`doctor` + `assert-contract`) are enforced in every consumer CI.
+- [ ] Storage/provenance outputs meet operational requirements (retention, reproducibility, replayability).
+- [ ] At least one additional (non-AlgoTradePlan) project is integrated successfully using documented onboarding flow.
+- [ ] Migration docs and rollback instructions are validated and up to date.
+- [ ] Consumer repositories contain no duplicate normalization/quality/storage/provenance/query ownership.
+
+### Validation snapshot in this repository
+
+Current baseline in this repo passes:
+
+- `cargo fmt --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test`
