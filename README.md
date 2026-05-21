@@ -37,6 +37,9 @@ cargo test
 ### Bridge CLI commands
 
 ```bash
+# show detailed command help + examples
+cargo run --quiet --bin market_data_bridge -- help
+
 # verify setup
 cargo run --quiet --bin market_data_bridge -- doctor
 
@@ -49,6 +52,18 @@ cargo run --quiet --bin market_data_bridge -- sources
 # filter sources by dataset + asset class
 cargo run --quiet --bin market_data_bridge -- query-sources-for \
   --dataset kline --asset-class crypto_spot
+
+# ranked recommendations for a dataset
+cargo run --quiet --bin market_data_bridge -- query-best-sources \
+  --dataset kline --asset-class crypto_spot --limit 5
+
+# source/dataset explain helpers
+cargo run --quiet --bin market_data_bridge -- query-source-summary --source binance_futures
+cargo run --quiet --bin market_data_bridge -- query-dataset-summary --dataset kline
+
+# use-case recommendations + supported use-cases
+cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypto_backtest --limit 5
+cargo run --quiet --bin market_data_bridge -- supported-use-cases
 
 # full source capability metadata
 cargo run --quiet --bin market_data_bridge -- capabilities
@@ -115,6 +130,7 @@ The destructive data-layer migration has been completed.  Key integration files:
 | `integration/algotradeplan/datahub_bridge_example.py` | Standalone usage example |
 | `docs/algotradeplan_integration.md` | Architecture overview and CLI reference |
 | `docs/standalone_data_layer_migration_plan.md` | Authoritative standalone migration + reusable architecture plan |
+| `docs/data_layer_status_gap_analysis.md` | Current readiness summary, gap analysis, and full-cutover checklist |
 | `docs/new_project_onboarding.md` | How to use MarketData from any project |
 
 ### Files removed from AlgoTradePlan

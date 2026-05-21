@@ -7,6 +7,47 @@ fn bridge_bin() -> &'static str {
 }
 
 #[test]
+fn help_command_prints_menu_and_examples() {
+    let output = Command::new(bridge_bin())
+        .arg("help")
+        .output()
+        .expect("help command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USAGE"));
+    assert!(stdout.contains("COMMANDS"));
+    assert!(stdout.contains("EXAMPLES"));
+    assert!(stdout.contains("query-best-sources"));
+    assert!(stdout.contains("recommend-sources"));
+}
+
+#[test]
+fn help_flag_prints_menu() {
+    let output = Command::new(bridge_bin())
+        .arg("--help")
+        .output()
+        .expect("--help should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("market_data_bridge"));
+    assert!(stdout.contains("ingest"));
+}
+
+#[test]
+fn no_args_prints_help_menu() {
+    let output = Command::new(bridge_bin())
+        .output()
+        .expect("invocation without args should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USAGE"));
+    assert!(stdout.contains("help"));
+}
+
+#[test]
 fn doctor_reports_bridge_contract() {
     let output = Command::new(bridge_bin())
         .arg("doctor")
@@ -222,6 +263,99 @@ fn query_sources_for_require_live_excludes_non_realtime() {
         .collect::<Vec<_>>();
     assert!(names.contains(&"binance_futures"));
     assert!(!names.contains(&"stooq"), "stooq does not support realtime");
+}
+
+#[test]
+fn query_best_sources_returns_ranked_rows() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "query-best-sources",
+            "--dataset",
+            "kline",
+            "--asset-class",
+            "crypto_spot",
+            "--limit",
+            "3",
+        ])
+        .output()
+        .expect("query-best-sources command should run");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("query-best-sources output should be valid");
+    let rows = payload
+        .as_array()
+        .expect("query-best-sources should return json array");
+    assert!(!rows.is_empty());
+    assert!(rows[0]["source"].is_string());
+}
+
+#[test]
+fn query_source_summary_returns_source_metadata() {
+    let output = Command::new(bridge_bin())
+        .args(["query-source-summary", "--source", "binance_futures"])
+        .output()
+        .expect("query-source-summary command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout)
+        .expect("query-source-summary output should be valid");
+    assert_eq!(payload["source"], "binance_futures");
+    assert!(payload["datasets"].is_array());
+}
+
+#[test]
+fn query_dataset_summary_returns_counts() {
+    let output = Command::new(bridge_bin())
+        .args(["query-dataset-summary", "--dataset", "kline"])
+        .output()
+        .expect("query-dataset-summary command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout)
+        .expect("query-dataset-summary output should be valid");
+    assert_eq!(payload["dataset"], "kline");
+    assert!(payload["source_count"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn recommend_sources_returns_use_case_results() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "recommend-sources",
+            "--use-case",
+            "crypto_backtest",
+            "--limit",
+            "2",
+        ])
+        .output()
+        .expect("recommend-sources command should run");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("recommend-sources output should be valid");
+    let rows = payload
+        .as_array()
+        .expect("recommend-sources should return json array");
+    assert!(!rows.is_empty());
+    assert!(rows[0]["source"].is_string());
+}
+
+#[test]
+fn supported_use_cases_returns_known_cases() {
+    let output = Command::new(bridge_bin())
+        .arg("supported-use-cases")
+        .output()
+        .expect("supported-use-cases command should run");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("supported-use-cases output should be valid");
+    let rows = payload
+        .as_array()
+        .expect("supported-use-cases should return json array");
+    assert!(rows.iter().any(|v| v == "crypto_live_trading"));
+    assert!(rows.iter().any(|v| v == "fundamental_screening"));
 }
 
 #[test]

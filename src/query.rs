@@ -101,6 +101,7 @@ pub fn best_sources_for(
     asset_class: Option<&str>,
     prefer_live: bool,
     allow_api_key: bool,
+    include_metadata_only: bool,
     limit: Option<usize>,
 ) -> Vec<HashMap<String, String>> {
     let canonical = canonical_dataset_name(dataset);
@@ -110,7 +111,9 @@ pub fn best_sources_for(
             if !allow_api_key && cap.requires_api_key {
                 return false;
             }
-            if !cap.implemented_datasets.iter().any(|d| d == canonical) {
+            let has_implemented = cap.implemented_datasets.iter().any(|d| d == canonical);
+            let has_metadata_only = cap.metadata_only_datasets.iter().any(|d| d == canonical);
+            if !(has_implemented || include_metadata_only && has_metadata_only) {
                 return false;
             }
             if let Some(ac) = asset_class
@@ -138,8 +141,15 @@ pub fn best_sources_for(
                 _ => 0,
             }
         };
-        let score_b = live_score(b) + quality_score(b);
-        let score_a = live_score(a) + quality_score(a);
+        let metadata_penalty = |c: &SourceCapability| -> i32 {
+            if c.implemented_datasets.iter().any(|d| d == canonical) {
+                0
+            } else {
+                -2
+            }
+        };
+        let score_b = live_score(b) + quality_score(b) + metadata_penalty(b);
+        let score_a = live_score(a) + quality_score(a) + metadata_penalty(a);
         score_b.cmp(&score_a).then(a.source.cmp(&b.source))
     });
 
@@ -164,6 +174,68 @@ pub fn best_sources_for(
         row
     })
     .collect()
+}
+
+/// Returns a summary for a dataset, including supporting and live sources.
+pub fn dataset_summary(
+    capabilities: &HashMap<String, SourceCapability>,
+    dataset: &str,
+) -> HashMap<String, serde_json::Value> {
+    use serde_json::json;
+    let canonical = canonical_dataset_name(dataset);
+    let sources = sources_for(capabilities, Some(canonical), None, false);
+    let live_sources = sources_for(capabilities, Some(canonical), None, true);
+    let mut m = HashMap::new();
+    m.insert("dataset".to_string(), json!(canonical));
+    m.insert("sources".to_string(), json!(sources));
+    m.insert("live_sources".to_string(), json!(live_sources));
+    m.insert("source_count".to_string(), json!(sources.len()));
+    m.insert("live_source_count".to_string(), json!(live_sources.len()));
+    m
+}
+
+fn use_case_profile(use_case: &str) -> (&'static str, Option<&'static str>) {
+    match use_case {
+        "crypto_live_trading" => ("tick", Some("crypto_perpetual")),
+        "crypto_backtest" => ("kline", Some("crypto_spot")),
+        "equity_swing" => ("kline", Some("equity")),
+        "macro_research" => ("macro", Some("macro")),
+        "news_sentiment" => ("news", Some("news")),
+        "fundamental_screening" => ("fundamentals", Some("equity")),
+        _ => ("kline", None),
+    }
+}
+
+/// Returns all use-cases supported by built-in recommendation rules.
+pub fn supported_use_cases() -> Vec<&'static str> {
+    vec![
+        "crypto_live_trading",
+        "crypto_backtest",
+        "equity_swing",
+        "macro_research",
+        "news_sentiment",
+        "fundamental_screening",
+    ]
+}
+
+/// Returns recommended sources for a named use-case.
+pub fn recommend_sources_for_use_case(
+    capabilities: &HashMap<String, SourceCapability>,
+    use_case: &str,
+    allow_api_key: bool,
+    prefer_live: bool,
+    limit: Option<usize>,
+) -> Vec<HashMap<String, String>> {
+    let (dataset, asset_class) = use_case_profile(use_case);
+    best_sources_for(
+        capabilities,
+        dataset,
+        asset_class,
+        prefer_live,
+        allow_api_key,
+        true,
+        limit,
+    )
 }
 
 /// Returns a brief summary of a source.
@@ -244,8 +316,23 @@ mod tests {
     #[test]
     fn best_sources_returns_ranked_list() {
         let caps = capability_map();
-        let result = best_sources_for(&caps, "kline", None, true, true, Some(3));
+        let result = best_sources_for(&caps, "kline", None, true, true, false, Some(3));
         assert!(!result.is_empty());
         assert!(result[0].contains_key("source"));
+    }
+
+    #[test]
+    fn dataset_summary_contains_counts() {
+        let caps = capability_map();
+        let result = dataset_summary(&caps, "kline");
+        assert_eq!(result["dataset"], "kline");
+        assert!(result["source_count"].as_u64().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn recommend_sources_for_use_case_returns_results() {
+        let caps = capability_map();
+        let result = recommend_sources_for_use_case(&caps, "crypto_backtest", true, true, Some(2));
+        assert!(!result.is_empty());
     }
 }

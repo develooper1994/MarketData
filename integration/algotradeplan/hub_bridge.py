@@ -114,7 +114,7 @@ def _run_bridge(
     input: str = "",
     binary: str | None = None,
     repo_root: Path | None = None,
-) -> dict[str, Any]:
+) -> Any:
     """Run a ``market_data_bridge`` subcommand and return parsed JSON."""
     binary = binary or os.getenv("MARKET_DATA_BIN")
     if binary:
@@ -328,78 +328,32 @@ class DataHub:
         include_metadata_only: bool = False,
         limit: int | None = None,
     ) -> list[dict[str, str]]:
-        requested_dataset = _canonical(dataset)
-        if limit is not None and limit < 0:
-            limit = 0
-        rows: list[tuple[int, dict[str, str]]] = []
-        for source, cap in self._caps.map().items():
-            if asset_class and asset_class not in cap.get("asset_classes", []):
-                continue
-            if not allow_api_key and cap.get("requires_api_key", False):
-                continue
-            implemented = {_canonical(ds) for ds in cap.get("implemented_datasets", [])}
-            metadata_only = {_canonical(ds) for ds in cap.get("metadata_only_datasets", [])}
-            has_impl = requested_dataset in implemented
-            has_meta = requested_dataset in metadata_only
-            if not has_impl and not (include_metadata_only and has_meta):
-                continue
-
-            score = 0
-            if prefer_live and cap.get("supports_realtime", False):
-                score += 2
-            quality_level = str(cap.get("quality_level", "community"))
-            score += {"production": 3, "best_effort": 1, "fallback": -1}.get(quality_level, 0)
-            if has_meta and not has_impl:
-                score -= 2
-
-            rows.append(
-                (
-                    score,
-                    {
-                        "source": source,
-                        "quality_level": quality_level,
-                        "implementation_status": str(cap.get("implementation_status", "")),
-                        "requires_api_key": str(bool(cap.get("requires_api_key", False))).lower(),
-                    },
-                )
-            )
-
-        rows.sort(key=lambda item: (-item[0], item[1]["source"]))
-        result = [row for _, row in rows]
+        args = ["query-best-sources", "--dataset", _canonical(dataset)]
+        if asset_class:
+            args += ["--asset-class", asset_class]
+        if not allow_api_key:
+            args.append("--disallow-api-key")
+        if not prefer_live:
+            args.append("--no-prefer-live")
+        if include_metadata_only:
+            args.append("--include-metadata-only")
         if limit is not None:
-            return result[:limit]
-        return result
+            args += ["--limit", str(max(0, limit))]
+        return _run_bridge(args, binary=self._binary, repo_root=self._repo_root)  # type: ignore[return-value]
 
     def explain_source(self, source: str) -> dict[str, Any]:
-        cap = self._caps.get(source)
-        if cap is None:
-            return {"source": source, "status": "unsupported"}
-        return {
-            "source": source,
-            "asset_classes": cap.get("asset_classes", []),
-            "datasets": cap.get("datasets", []),
-            "implemented_datasets": cap.get("implemented_datasets", []),
-            "metadata_only_datasets": cap.get("metadata_only_datasets", []),
-            "implementation_status": cap.get("implementation_status", "unsupported"),
-            "requires_api_key": bool(cap.get("requires_api_key", False)),
-            "api_key_env": cap.get("api_key_env"),
-            "supports_realtime": bool(cap.get("supports_realtime", False)),
-            "supports_discovery": bool(cap.get("supports_discovery", False)),
-            "quality_level": cap.get("quality_level", "community"),
-            "notes": cap.get("notes", ""),
-        }
+        return _run_bridge(
+            ["query-source-summary", "--source", source],
+            binary=self._binary,
+            repo_root=self._repo_root,
+        )
 
     def explain_dataset(self, dataset: str) -> dict[str, Any]:
-        canonical = _canonical(dataset)
-        sources = self.sources_for(dataset=canonical)
-        live_sources = self.sources_for(dataset=canonical, require_live=True)
-        return {
-            "dataset": canonical,
-            "sources": sources,
-            "live_sources": live_sources,
-            "source_count": len(sources),
-            "live_source_count": len(live_sources),
-        }
+        return _run_bridge(
+            ["query-dataset-summary", "--dataset", _canonical(dataset)],
+            binary=self._binary,
+            repo_root=self._repo_root,
+        )
 
     def recommend_sources(
         self,
@@ -409,33 +363,25 @@ class DataHub:
         prefer_live: bool = True,
         limit: int | None = None,
     ) -> list[dict[str, str]]:
-        use_case_map: dict[str, tuple[str, str | None]] = {
-            "crypto_live_trading": ("tick", "crypto_perpetual"),
-            "crypto_backtest": ("kline", "crypto_spot"),
-            "equity_swing": ("kline", "equity"),
-            "macro_research": ("macro", "macro"),
-            "news_sentiment": ("news", "news"),
-            "fundamental_screening": ("fundamentals", "equity"),
-        }
-        dataset, asset_class = use_case_map.get(use_case, ("kline", None))
-        return self.best_sources_for(
-            dataset=dataset,
-            asset_class=asset_class,
-            prefer_live=prefer_live,
-            allow_api_key=allow_api_key,
-            include_metadata_only=True,
-            limit=limit,
+        args = ["recommend-sources", "--use-case", use_case]
+        if not allow_api_key:
+            args.append("--disallow-api-key")
+        if not prefer_live:
+            args.append("--no-prefer-live")
+        if limit is not None:
+            args += ["--limit", str(max(0, limit))]
+        return _run_bridge(
+            args,
+            binary=self._binary,
+            repo_root=self._repo_root,
         )
 
     def supported_use_cases(self) -> list[str]:
-        return [
-            "crypto_live_trading",
-            "crypto_backtest",
-            "equity_swing",
-            "macro_research",
-            "news_sentiment",
-            "fundamental_screening",
-        ]
+        return _run_bridge(
+            ["supported-use-cases"],
+            binary=self._binary,
+            repo_root=self._repo_root,
+        )  # type: ignore[return-value]
 
     def dataset_sources_matrix(self, datasets: list[str] | None = None) -> list[dict[str, str]]:
         all_datasets = sorted(
