@@ -22,6 +22,7 @@ Quick-reference status for the single-data-layer migration.
 - [x] Offline reference adapter registered by default for safe local fetch/discovery smoke paths (`SourceAdapterRegistry::default()`)
 - [x] `market_data_bridge` CLI with `help`, `doctor`, `assert-contract`, `sources`, `capabilities`, `query-sources-for`, `query-best-sources`, `query-source-summary`, `query-dataset-summary`, `supported-use-cases`, `recommend-sources`, `ingest`
 - [x] Short command aliases (`ls`, `qsf`, `qbs`, `qss`, `qds`, `rs`, `suc`, `ing`, `status`, `assert`, `caps`)
+- [x] Commandless stdin JSON request mode (`market_data_bridge` with `{"command": ...}` input) for thin-client parity
 - [x] Bridge contract versioning (`BRIDGE_CONTRACT_VERSION = "1"`)
 - [x] AlgoTradePlan compatibility shim (`integration/algotradeplan/hub_bridge.py`)
 - [x] Destructive migration guide (`integration/algotradeplan/migration_cutover.md`)

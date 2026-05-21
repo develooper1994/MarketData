@@ -104,6 +104,8 @@ export MARKET_DATA_BIN="$PWD/target/release/market_data_bridge"
 ```bash
 $MARKET_DATA_BIN doctor
 # → {"status":"ok","contract_version":"1",...}
+# commandless stdin-json request mode:
+printf '{"command":"doctor"}' | "$MARKET_DATA_BIN"
 ```
 
 ### Step 3 - Query available sources
@@ -146,6 +148,9 @@ The command returns a JSON `IngestResult` object:
   "provenance": {"source_plugin_id": "binance_futures", ...}
 }
 ```
+
+If stdin is empty, `ingest` falls back to deterministic adapter-backed payloads for
+registered offline sources (`offline`, `offline_fallback`), which is safe for cloud CI.
 
 ### Python wrapper example
 

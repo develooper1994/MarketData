@@ -91,6 +91,29 @@ fn no_args_prints_help_menu() {
 }
 
 #[test]
+fn no_args_accepts_stdin_json_doctor_request() {
+    let mut child = Command::new(bridge_bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("invocation without args should run");
+
+    serde_json::to_writer(
+        child.stdin.take().expect("stdin should be available"),
+        &json!({ "command": "doctor" }),
+    )
+    .expect("request should serialize");
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("doctor output should be valid json");
+    assert_eq!(payload["status"], "ok");
+    assert_eq!(payload["binary"], "market_data_bridge");
+    assert_eq!(payload["transport"], "stdin_json");
+}
+
+#[test]
 fn doctor_reports_bridge_contract() {
     let output = Command::new(bridge_bin())
         .arg("doctor")
@@ -178,6 +201,31 @@ fn ingest_round_trips_raw_payload_and_artifacts() {
 }
 
 #[test]
+fn ingest_without_stdin_payload_uses_offline_adapter() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--datasets",
+            "kline",
+            "--asset-type",
+            "crypto_spot",
+        ])
+        .output()
+        .expect("bridge ingest command should run");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
+    assert_eq!(payload["dataset_coverage"]["kline"], 1);
+    assert_eq!(payload["records"][0]["domain"], "market");
+    assert_eq!(payload["records"][0]["asset_type"], "crypto_spot");
+}
+
+#[test]
 fn ingest_surfaces_missing_dataset_issues() {
     let mut child = Command::new(bridge_bin())
         .args([
@@ -250,6 +298,34 @@ fn ingest_accepts_repeated_dataset_flag() {
     let payload: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(payload["dataset_coverage"]["kline"], 1);
     assert_eq!(payload["dataset_coverage"]["trade"], 1);
+}
+
+#[test]
+fn no_args_stdin_json_ingest_request_supports_structured_options() {
+    let mut child = Command::new(bridge_bin())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("invocation without args should run");
+
+    serde_json::to_writer(
+        child.stdin.take().expect("stdin should be available"),
+        &json!({
+            "command": "ingest",
+            "source": "offline",
+            "symbol": "BTCUSDT",
+            "datasets": ["kline"],
+            "asset_type": "crypto_spot"
+        }),
+    )
+    .expect("request should serialize");
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
+    assert_eq!(payload["dataset_coverage"]["kline"], 1);
+    assert_eq!(payload["records"][0]["asset_type"], "crypto_spot");
 }
 
 #[test]
