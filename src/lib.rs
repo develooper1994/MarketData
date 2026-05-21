@@ -20,6 +20,7 @@ pub use provenance::ManifestProvenanceTracker;
 pub use quality::CanonicalDataQuality;
 pub use query::{
     asset_status_for_source, available_datasets, best_sources_for, dataset_status_for_source,
-    source_summary, sources_for,
+    dataset_summary, recommend_sources_for_use_case, source_summary, sources_for,
+    supported_use_cases,
 };
 pub use storage::{InMemoryStorage, LocalArtifactStorage, StorageBackend};

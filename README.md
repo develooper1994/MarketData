@@ -50,6 +50,18 @@ cargo run --quiet --bin market_data_bridge -- sources
 cargo run --quiet --bin market_data_bridge -- query-sources-for \
   --dataset kline --asset-class crypto_spot
 
+# ranked recommendations for a dataset
+cargo run --quiet --bin market_data_bridge -- query-best-sources \
+  --dataset kline --asset-class crypto_spot --limit 5
+
+# source/dataset explain helpers
+cargo run --quiet --bin market_data_bridge -- query-source-summary --source binance_futures
+cargo run --quiet --bin market_data_bridge -- query-dataset-summary --dataset kline
+
+# use-case recommendations + supported use-cases
+cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypto_backtest --limit 5
+cargo run --quiet --bin market_data_bridge -- supported-use-cases
+
 # full source capability metadata
 cargo run --quiet --bin market_data_bridge -- capabilities
 

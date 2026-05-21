@@ -34,10 +34,11 @@ The following responsibilities are implemented in this repository and validated 
 - Bridge `ingest` currently consumes caller-supplied raw JSON datasets; it is not yet a full “fetch from provider + ingest” runtime by itself.
 - Capability matrix includes many sources with statuses like `partial`, `api_key`, `api_key_or_plan`, `fallback`, and metadata-only datasets, which indicates mixed readiness.
 
-### B) Query/recommendation authority is not fully centralized at bridge level
+### B) Query/recommendation centralization is improved but still evolving
 
-- Rust has query helpers (`src/query.rs`), but bridge CLI exposes only `query-sources-for`.
-- Higher-level recommendation/explanation helpers used by AlgoTradePlan compatibility flows are still implemented in Python shim logic, not as first-class bridge commands.
+- Bridge now exposes first-class query/recommend/explain commands (`query-best-sources`, `query-source-summary`, `query-dataset-summary`, `recommend-sources`, `supported-use-cases`).
+- Compatibility shim can delegate these flows to Rust bridge commands.
+- Remaining work is operational hardening and richer policy/configuration for project-specific recommendation profiles over time.
 
 ### C) Multi-project platform completeness is not finished
 

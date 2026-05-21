@@ -12,6 +12,9 @@ This guide shows how any project (Rust, Python, or other) can consume it.
 |---|---|
 | 24-source registry with capability metadata | `capabilities` CLI command / Rust `all_capabilities()` |
 | Source discovery by dataset / asset class | `query-sources-for` CLI command / Rust `sources_for(...)` |
+| Ranked source selection | `query-best-sources` CLI command / Rust `best_sources_for(...)` |
+| Source and dataset explain helpers | `query-source-summary` + `query-dataset-summary` CLI commands |
+| Use-case recommendations | `recommend-sources` + `supported-use-cases` CLI commands |
 | Ingestion pipeline (normalize → quality → store → provenance) | `ingest` CLI command / Rust `DataHub::ingest_from_raw` |
 | 9 dataset types supported | `kline` `tick` `trade` `orderbook` `funding` `macro` `news` `fundamentals` `corporate_actions` |
 | Environment health check | `doctor` CLI command |
@@ -106,6 +109,11 @@ $MARKET_DATA_BIN doctor
 $MARKET_DATA_BIN sources
 $MARKET_DATA_BIN capabilities
 $MARKET_DATA_BIN query-sources-for --dataset kline --asset-class crypto_spot
+$MARKET_DATA_BIN query-best-sources --dataset kline --asset-class crypto_spot --limit 5
+$MARKET_DATA_BIN query-source-summary --source binance_futures
+$MARKET_DATA_BIN query-dataset-summary --dataset kline
+$MARKET_DATA_BIN supported-use-cases
+$MARKET_DATA_BIN recommend-sources --use-case crypto_backtest --limit 5
 ```
 
 ### Step 4 – Ingest data (pipe JSON in, receive JSON result)

@@ -1,6 +1,7 @@
 use market_data::{
     DataHub, InMemoryStorage, LocalArtifactStorage, ManifestProvenanceTracker,
-    SourceAdapterRegistry, all_capabilities, capability_map, sources_for,
+    SourceAdapterRegistry, all_capabilities, best_sources_for, capability_map, dataset_summary,
+    recommend_sources_for_use_case, source_summary, sources_for, supported_use_cases,
 };
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -41,13 +42,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&json!(names))?);
         }
         Some("query-sources-for") => query_sources_for(args.collect())?,
+        Some("query-best-sources") => query_best_sources(args.collect())?,
+        Some("query-source-summary") => query_source_summary(args.collect())?,
+        Some("query-dataset-summary") => query_dataset_summary(args.collect())?,
+        Some("recommend-sources") => recommend_sources(args.collect())?,
+        Some("supported-use-cases") => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!(supported_use_cases()))?
+            );
+        }
         Some("ingest") => ingest(parse_ingest_options(args.collect())?)?,
         Some(command) => {
             return Err(format!("unknown command: {command}").into());
         }
         None => {
             return Err(
-                "usage: market_data_bridge <doctor|capabilities|assert-contract|sources|query-sources-for|ingest> [options]"
+                "usage: market_data_bridge <doctor|capabilities|assert-contract|sources|query-sources-for|query-best-sources|query-source-summary|query-dataset-summary|recommend-sources|supported-use-cases|ingest> [options]"
                     .into(),
             );
         }
@@ -122,6 +133,126 @@ fn query_sources_for(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>
         asset_class.as_deref(),
         require_live,
     );
+    println!("{}", serde_json::to_string_pretty(&json!(result))?);
+    Ok(())
+}
+
+fn query_best_sources(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dataset: Option<String> = None;
+    let mut asset_class: Option<String> = None;
+    let mut prefer_live = true;
+    let mut allow_api_key = true;
+    let mut include_metadata_only = false;
+    let mut limit: Option<usize> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dataset" => {
+                i += 1;
+                dataset = args.get(i).cloned();
+            }
+            "--asset-class" => {
+                i += 1;
+                asset_class = args.get(i).cloned();
+            }
+            "--limit" => {
+                i += 1;
+                let parsed = args.get(i).ok_or("--limit requires a value")?;
+                limit = Some(parsed.parse::<usize>()?);
+            }
+            "--disallow-api-key" => allow_api_key = false,
+            "--no-prefer-live" => prefer_live = false,
+            "--include-metadata-only" => include_metadata_only = true,
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let dataset = dataset.ok_or("--dataset is required")?;
+    let caps = capability_map();
+    let result = best_sources_for(
+        &caps,
+        &dataset,
+        asset_class.as_deref(),
+        prefer_live,
+        allow_api_key,
+        include_metadata_only,
+        limit,
+    );
+    println!("{}", serde_json::to_string_pretty(&json!(result))?);
+    Ok(())
+}
+
+fn query_source_summary(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut source: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => {
+                i += 1;
+                source = args.get(i).cloned();
+            }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+    let source = source.ok_or("--source is required")?;
+    let caps = capability_map();
+    let result = source_summary(&caps, &source);
+    println!("{}", serde_json::to_string_pretty(&json!(result))?);
+    Ok(())
+}
+
+fn query_dataset_summary(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dataset: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dataset" => {
+                i += 1;
+                dataset = args.get(i).cloned();
+            }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+    let dataset = dataset.ok_or("--dataset is required")?;
+    let caps = capability_map();
+    let result = dataset_summary(&caps, &dataset);
+    println!("{}", serde_json::to_string_pretty(&json!(result))?);
+    Ok(())
+}
+
+fn recommend_sources(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut use_case: Option<String> = None;
+    let mut prefer_live = true;
+    let mut allow_api_key = true;
+    let mut limit: Option<usize> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--use-case" => {
+                i += 1;
+                use_case = args.get(i).cloned();
+            }
+            "--limit" => {
+                i += 1;
+                let parsed = args.get(i).ok_or("--limit requires a value")?;
+                limit = Some(parsed.parse::<usize>()?);
+            }
+            "--disallow-api-key" => allow_api_key = false,
+            "--no-prefer-live" => prefer_live = false,
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let use_case = use_case.ok_or("--use-case is required")?;
+    let caps = capability_map();
+    let result =
+        recommend_sources_for_use_case(&caps, &use_case, allow_api_key, prefer_live, limit);
     println!("{}", serde_json::to_string_pretty(&json!(result))?);
     Ok(())
 }
@@ -250,6 +381,11 @@ fn print_json(value: &Value, include_contract: bool) -> Result<(), Box<dyn std::
                 "provenance": true,
                 "capabilities": true,
                 "query_sources_for": true,
+                "query_best_sources": true,
+                "query_source_summary": true,
+                "query_dataset_summary": true,
+                "recommend_sources": true,
+                "supported_use_cases": true,
             }),
         );
     }

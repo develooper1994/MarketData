@@ -101,6 +101,32 @@ market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
 market_data_bridge query-sources-for --dataset tick --require-live
 ```
 
+### `query-best-sources` – ranked source recommendations for a dataset
+
+```bash
+market_data_bridge query-best-sources --dataset kline --asset-class crypto_spot --limit 5
+market_data_bridge query-best-sources --dataset fundamentals --include-metadata-only
+```
+
+### `query-source-summary` – explain one source
+
+```bash
+market_data_bridge query-source-summary --source binance_futures
+```
+
+### `query-dataset-summary` – explain one dataset
+
+```bash
+market_data_bridge query-dataset-summary --dataset kline
+```
+
+### `recommend-sources` / `supported-use-cases` – use-case level recommendations
+
+```bash
+market_data_bridge supported-use-cases
+market_data_bridge recommend-sources --use-case crypto_backtest --limit 5
+```
+
 ### `ingest` – normalize / quality / storage / provenance
 
 ```bash
@@ -158,5 +184,6 @@ Key files:
 |---|---|---|
 | 1 | **Done** | Bridge CLI: ingest, capabilities, sources, query-sources-for |
 | 2 | **Done** | Remove AlgoTradePlan query/coverage ownership; keep only bridge shim |
+| 2.1 | **Done** | Query/recommend/explain commands added to bridge (`query-best-sources`, `query-source-summary`, `query-dataset-summary`, `recommend-sources`) |
 | 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
 | 4 | Planned | Rust hot-path: indicators, backtest core |
