@@ -432,7 +432,7 @@ The following documents must exist and stay current:
 
 | Document | Location | Owner | What it covers |
 |---|---|---|---|
-| Repository quick-start | `README.md` | MarketData | CLI quick use, command cheatsheet, common flows, doc index |
+| Repository quick start | `README.md` | MarketData | CLI quick use, command cheatsheet, common flows, doc index |
 | This migration plan | `docs/standalone_data_layer_migration_plan.md` | MarketData | Architecture, responsibilities, migration sequence, acceptance criteria |
 | Integration guide | `docs/algotradeplan_integration.md` | MarketData | Architecture diagram, contract mapping, cutover steps |
 | New-project onboarding | `docs/new_project_onboarding.md` | MarketData | How any project integrates (Rust, subprocess, future gRPC) |

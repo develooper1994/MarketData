@@ -51,7 +51,7 @@ The command exits non-zero when the bridge contract differs from the pinned vers
 
 ---
 
-## Option 1 – Rust-native (recommended for Rust projects)
+## Option 1 - Rust-native (recommended for Rust projects)
 
 Add the crate as a path or git dependency in your `Cargo.toml`:
 
@@ -86,12 +86,12 @@ println!("{}", result.quality_report.passed);
 
 ---
 
-## Option 2 – Subprocess bridge (polyglot / Python / any language)
+## Option 2 - Subprocess bridge (polyglot / Python / any language)
 
 For the canonical command list and common flows, see:
 [`README.md`](../README.md#bridge-cli-quick-use)
 
-### Step 1 – Build the binary
+### Step 1 - Build the binary
 
 ```bash
 cd /path/to/MarketData
@@ -99,14 +99,14 @@ cargo build --release --bin market_data_bridge
 export MARKET_DATA_BIN="$PWD/target/release/market_data_bridge"
 ```
 
-### Step 2 – Verify setup
+### Step 2 - Verify setup
 
 ```bash
 $MARKET_DATA_BIN doctor
 # → {"status":"ok","contract_version":"1",...}
 ```
 
-### Step 3 – Query available sources
+### Step 3 - Query available sources
 
 ```bash
 $MARKET_DATA_BIN sources
@@ -119,7 +119,7 @@ $MARKET_DATA_BIN supported-use-cases
 $MARKET_DATA_BIN recommend-sources --use-case crypto_backtest --limit 5
 ```
 
-### Step 4 – Ingest data (pipe JSON in, receive JSON result)
+### Step 4 - Ingest data (pipe JSON in, receive JSON result)
 
 ```bash
 printf '{"kline":[[1716200000000,100,110,90,105,1000]]}' | \
@@ -175,7 +175,7 @@ result = run_bridge(
 print(result["quality_report"]["passed"])
 ```
 
-## Option 3 – gRPC microservice (planned – Phase 3)
+## Option 3 - gRPC microservice (planned - Phase 3)
 
 A future release will expose the same contract over gRPC (`tonic`), enabling
 remote consumption over the network without a local binary. Pin to

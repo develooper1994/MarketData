@@ -61,6 +61,7 @@ cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypt
 cargo run --quiet --bin market_data_bridge -- supported-use-cases
 
 # ingest (normalize + quality + storage + provenance)
+# Example: ingest historical candle data (timestamp in milliseconds)
 printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
   cargo run --quiet --bin market_data_bridge -- ingest \
     --source offline \
@@ -114,6 +115,7 @@ let mut hub = DataHub::with_components(
     SourceAdapterRegistry::default(),
 );
 
+// Example: library ingest of historical candle data (timestamp in milliseconds)
 let result = hub.ingest_from_raw(
     "offline",
     "BTCUSDT",
@@ -141,10 +143,9 @@ Keep docs intentionally small and non-duplicative:
 
 | Doc | Purpose |
 |---|---|
-| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md) | Authoritative architecture and migration ownership model |
+| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md) | Authoritative architecture, migration ownership model, and current readiness/gap checklist |
 | [`docs/algotradeplan_integration.md`](docs/algotradeplan_integration.md) | AlgoTradePlan bridge wiring and cutover integration notes |
 | [`docs/new_project_onboarding.md`](docs/new_project_onboarding.md) | Reusable onboarding for any new consumer project |
-| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md#11-current-readiness-gap-summary-and-checklist) | Current readiness, risk notes, and actionable gap checklist |
 
 ## Data source support (24 sources)
 
