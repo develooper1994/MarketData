@@ -58,6 +58,9 @@ impl RawSourceAdapter for OfflineReferenceAdapter {
         _timeframe: &str,
         _limit: usize,
     ) -> HashMap<String, Value> {
+        // Intentionally deterministic reference payloads for offline smoke tests
+        // and bridge compatibility checks. This is a safe fallback adapter, not
+        // a production live-provider implementation.
         datasets
             .iter()
             .map(|dataset| {
