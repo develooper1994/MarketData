@@ -37,6 +37,9 @@ cargo test
 ### Bridge CLI commands
 
 ```bash
+# show detailed command help + examples
+cargo run --quiet --bin market_data_bridge -- help
+
 # verify setup
 cargo run --quiet --bin market_data_bridge -- doctor
 

@@ -14,6 +14,9 @@ const BRIDGE_CONTRACT_VERSION: &str = "1";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args().skip(1);
     match args.next().as_deref() {
+        Some("help") | Some("--help") | Some("-h") => {
+            println!("{}", help_text());
+        }
         Some("doctor") => print_json(
             &json!({
                 "status": "ok",
@@ -54,17 +57,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some("ingest") => ingest(parse_ingest_options(args.collect())?)?,
         Some(command) => {
-            return Err(format!("unknown command: {command}").into());
+            return Err(format!("unknown command: {command}\n\n{}", help_text()).into());
         }
         None => {
-            return Err(
-                "usage: market_data_bridge <doctor|capabilities|assert-contract|sources|query-sources-for|query-best-sources|query-source-summary|query-dataset-summary|recommend-sources|supported-use-cases|ingest> [options]"
-                    .into(),
-            );
+            println!("{}", help_text());
         }
     }
 
     Ok(())
+}
+
+fn help_text() -> &'static str {
+    r#"market_data_bridge — MarketData integration CLI
+
+USAGE
+  market_data_bridge <command> [options]
+  market_data_bridge help
+  market_data_bridge --help
+
+COMMANDS
+  doctor                Show bridge/version/contract health information
+  assert-contract       Verify expected bridge contract version
+  capabilities          Print full source capability registry
+  sources               Print all source names
+  query-sources-for     Filter sources by dataset/asset class/live support
+  query-best-sources    Return ranked source recommendations for a dataset
+  query-source-summary  Explain capabilities and status for one source
+  query-dataset-summary Explain availability summary for one dataset
+  supported-use-cases   List built-in recommendation use-cases
+  recommend-sources     Recommend sources by use-case
+  ingest                Normalize + quality-check + storage + provenance
+
+EXAMPLES
+  market_data_bridge doctor
+  market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
+  market_data_bridge query-best-sources --dataset fundamentals --include-metadata-only
+  market_data_bridge recommend-sources --use-case crypto_backtest --limit 5
+  printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
+    market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot
+"#
 }
 
 fn assert_contract(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {

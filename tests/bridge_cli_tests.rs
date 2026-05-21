@@ -7,6 +7,47 @@ fn bridge_bin() -> &'static str {
 }
 
 #[test]
+fn help_command_prints_menu_and_examples() {
+    let output = Command::new(bridge_bin())
+        .arg("help")
+        .output()
+        .expect("help command should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USAGE"));
+    assert!(stdout.contains("COMMANDS"));
+    assert!(stdout.contains("EXAMPLES"));
+    assert!(stdout.contains("query-best-sources"));
+    assert!(stdout.contains("recommend-sources"));
+}
+
+#[test]
+fn help_flag_prints_menu() {
+    let output = Command::new(bridge_bin())
+        .arg("--help")
+        .output()
+        .expect("--help should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("market_data_bridge"));
+    assert!(stdout.contains("ingest"));
+}
+
+#[test]
+fn no_args_prints_help_menu() {
+    let output = Command::new(bridge_bin())
+        .output()
+        .expect("invocation without args should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USAGE"));
+    assert!(stdout.contains("help"));
+}
+
+#[test]
 fn doctor_reports_bridge_contract() {
     let output = Command::new(bridge_bin())
         .arg("doctor")
