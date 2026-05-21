@@ -89,7 +89,7 @@ println!("{}", result.quality_report.passed);
 ## Option 2 – Subprocess bridge (polyglot / Python / any language)
 
 For the canonical command list and common flows, see:
-[`docs/cli_usage.md`](./cli_usage.md)
+[`README.md`](../README.md#bridge-cli-quick-use)
 
 ### Step 1 – Build the binary
 

@@ -52,8 +52,8 @@ market_data_bridge (Rust)  ◄────────────────�
 
 ## Bridge CLI reference
 
-Canonical CLI usage now lives in one place:
-[`docs/cli_usage.md`](./cli_usage.md)
+Canonical CLI usage now lives in the main quick-start:
+[`README.md`](../README.md#bridge-cli-quick-use)
 
 Build + binary setup for AlgoTradePlan integration:
 
