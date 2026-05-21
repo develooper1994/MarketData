@@ -35,6 +35,14 @@ compatibility shim that delegates every data decision to `MarketData`.
 cargo test
 ```
 
+Live online fetch doğrulamasini precommit asamasinda calistirmak icin:
+
+```bash
+./scripts/precommit_live_check.sh
+```
+
+Bu komut `MARKET_DATA_LIVE_TESTS=1` ile canli adaptor matrisi testini kosar. Varsayilan `cargo test` offline-safe kalir.
+
 `README` is the primary entrypoint: use it for setup, first CLI runs, and links to
 the canonical docs below.
 
@@ -65,6 +73,12 @@ cargo run --quiet --bin market_data_bridge -- query-dataset-matrix
 cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypto_backtest --limit 5
 cargo run --quiet --bin market_data_bridge -- supported-use-cases
 
+# single-command online fetch (no printf/stdin JSON)
+cargo run --quiet --bin market_data_bridge -- live-fetch \
+   --source binance_futures --symbol BTCUSDT --dataset tick --limit 5
+cargo run --quiet --bin market_data_bridge -- live-fetch \
+   --source binance_futures --symbol BTCUSDT --datasets tick,funding --asset-type crypto_perp --limit 5
+
 # ingest (normalize + quality + storage + provenance)
 # Example: ingest historical candle data (timestamp in milliseconds)
 printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
@@ -90,9 +104,10 @@ printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
 | `query-dataset-matrix` | Machine-readable dataset-to-source coverage matrix |
 | `supported-use-cases` | Built-in recommendation flows |
 | `recommend-sources --use-case <name> [--limit N]` | Use-case recommendation list |
+| `live-fetch --source <name> --symbol <id> --dataset <name>` | Single-command real online fetch |
 | `ingest --source <name> --symbol <id> --datasets <csv>` | Normalize + quality + storage + provenance |
 
-Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `qdm`, `rs`, `suc`, `ing`
+Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `qdm`, `rs`, `suc`, `lf`, `ing`
 
 ### Common CLI flows
 
@@ -110,7 +125,10 @@ Short aliases: `status`, `assert`, `caps`, `ls`, `qsf`, `qbs`, `qss`, `qds`, `qd
    - `market_data_bridge query-dataset-matrix`
    - `market_data_bridge supported-use-cases`
    - `market_data_bridge recommend-sources --use-case crypto_backtest --limit 5`
-4. Run full ingest pipeline:
+4. Fetch online data with one command:
+   - `market_data_bridge live-fetch --source binance_futures --symbol BTCUSDT --dataset tick --limit 5`
+   - `market_data_bridge live-fetch --source binance_futures --symbol BTCUSDT --datasets tick,funding --asset-type crypto_perp --limit 5`
+5. Run full ingest pipeline:
    - `printf '{"kline":[[1716200000000,100,110,90,105,1000]]}' | market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot`
    - `market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot` (with empty stdin uses deterministic offline adapter payload)
 

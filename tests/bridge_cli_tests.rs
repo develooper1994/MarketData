@@ -18,13 +18,16 @@ fn help_command_prints_menu_and_examples() {
     assert!(stdout.contains("USAGE"));
     assert!(stdout.contains("COMMANDS"));
     assert!(stdout.contains("COMMON FLOWS"));
+    assert!(stdout.contains("ONLINE DATA (REAL FETCH)"));
     assert!(stdout.contains("MORE EXAMPLES"));
     assert!(stdout.contains("assert-contract"));
     assert!(stdout.contains("sources"));
     assert!(stdout.contains("capabilities"));
     assert!(stdout.contains("query-best-sources"));
     assert!(stdout.contains("recommend-sources"));
+    assert!(stdout.contains("live-fetch"));
     assert!(stdout.contains("ingest"));
+    assert!(stdout.contains("--json load_market_data"));
 }
 
 #[test]
@@ -298,6 +301,68 @@ fn ingest_accepts_repeated_dataset_flag() {
     let payload: Value = serde_json::from_slice(&output.stdout).expect("json output");
     assert_eq!(payload["dataset_coverage"]["kline"], 1);
     assert_eq!(payload["dataset_coverage"]["trade"], 1);
+}
+
+#[test]
+fn live_fetch_single_command_returns_rows_without_stdin_json() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "live-fetch",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--dataset",
+            "tick",
+            "--limit",
+            "5",
+        ])
+        .output()
+        .expect("live-fetch command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
+    assert_eq!(payload["source"], "offline");
+    assert_eq!(payload["symbol"], "BTCUSDT");
+    assert_eq!(payload["dataset"], "tick");
+    assert!(payload["rows"].as_array().is_some_and(|rows| !rows.is_empty()));
+}
+
+#[test]
+fn live_fetch_alias_lf_works() {
+    let output = Command::new(bridge_bin())
+        .args([
+            "lf",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--dataset",
+            "kline",
+        ])
+        .output()
+        .expect("lf alias should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
+    assert_eq!(payload["dataset"], "kline");
+    assert!(
+        payload["rows_by_dataset"]["kline"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
+}
+
+#[test]
+fn live_fetch_requires_source_flag() {
+    let output = Command::new(bridge_bin())
+        .args(["live-fetch", "--symbol", "BTCUSDT", "--dataset", "tick"])
+        .output()
+        .expect("live-fetch command should run");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("--source is required"));
 }
 
 #[test]
@@ -824,6 +889,97 @@ fn ingest_normalizes_tick_dataset() {
         serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
     assert_eq!(payload["dataset_coverage"]["tick"], 1);
     assert_eq!(payload["records"][0]["domain"], "market");
+}
+
+#[test]
+fn live_adapters_are_opt_in_and_do_not_crash() {
+    if std::env::var("MARKET_DATA_LIVE_TESTS").ok().as_deref() != Some("1") {
+        eprintln!("skipping live adapter test (set MARKET_DATA_LIVE_TESTS=1 to enable)");
+        return;
+    }
+
+    let cases = vec![
+        ("binance_futures", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
+        ("bybit_linear", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
+        ("coinbase_spot", "BTC-USD", vec!["tick", "kline", "trade", "orderbook"]),
+        ("stooq", "aapl.us", vec!["kline"]),
+        ("yahoo_unofficial", "AAPL", vec!["tick", "kline"]),
+        ("coingecko", "bitcoin", vec!["tick", "kline"]),
+        ("kraken_spot", "XBTUSD", vec!["tick", "kline", "trade", "orderbook"]),
+        ("frankfurter_fx", "USD", vec!["macro"]),
+        ("ecb", "USD", vec!["tick", "macro"]),
+        ("world_bank", "NY.GDP.MKTP.CD", vec!["macro"]),
+        ("gdelt", "bitcoin", vec!["news"]),
+        ("hacker_news", "bitcoin", vec!["news"]),
+    ];
+
+    for (source, symbol, datasets) in cases {
+        let request = json!({
+            "source": source,
+            "symbol": symbol,
+            "datasets": datasets,
+            "timeframe": "1m",
+            "limit": 50,
+            "allow_partial": true,
+            "store": false,
+            "fetch_options": {},
+        });
+
+        let mut child = Command::new(bridge_bin())
+            .args(["ingest", "--json"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("json ingest should run");
+
+        serde_json::to_writer(
+            child.stdin.take().expect("stdin should be available"),
+            &request,
+        )
+        .expect("request should serialize");
+
+        let output = child.wait_with_output().expect("bridge should complete");
+        assert!(output.status.success(), "json ingest failed for source={source}");
+
+        let payload: Value =
+            serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
+        let coverage_total: i64 = payload["dataset_coverage"]
+            .as_object()
+            .map(|rows| {
+                rows.values()
+                    .map(|v| v.as_i64().unwrap_or(0))
+                    .sum::<i64>()
+            })
+            .unwrap_or(0);
+        let issues = payload["source_issues"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let has_allowed_issue = issues.iter().any(|issue| {
+            issue["reason"]
+                .as_str()
+                .is_some_and(|reason| {
+                    reason.starts_with("rate_limited:")
+                        || reason.starts_with("network_error:")
+                        || reason.starts_with("api_key_required:")
+                        || reason.starts_with("unsupported_dataset:")
+                })
+        });
+        let has_allowed_quality_issue = payload["quality_report"]["issues"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.iter().any(|issue| {
+                    issue
+                        .as_str()
+                        .is_some_and(|reason| reason.contains("No records fetched for request"))
+                })
+            });
+
+        assert!(
+            coverage_total > 0 || has_allowed_issue || has_allowed_quality_issue,
+            "expected coverage or allowed source issue for source={source}; payload={payload}"
+        );
+    }
 }
 
 #[test]

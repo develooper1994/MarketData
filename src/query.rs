@@ -161,7 +161,18 @@ pub fn best_sources_for(
 
     iter.map(|cap| {
         let mut row = HashMap::new();
+        let dataset_status = if cap.implemented_datasets.iter().any(|d| d == canonical) {
+            cap.implementation_status.clone()
+        } else {
+            "metadata_only".to_string()
+        };
+        let asset_status = asset_class
+            .map(|ac| asset_status_for_source(capabilities, &cap.source, ac))
+            .unwrap_or_else(|| cap.implementation_status.clone());
         row.insert("source".to_string(), cap.source.clone());
+        row.insert("dataset".to_string(), canonical.to_string());
+        row.insert("dataset_status".to_string(), dataset_status.clone());
+        row.insert("asset_status".to_string(), asset_status);
         row.insert("quality_level".to_string(), cap.quality_level.clone());
         row.insert(
             "implementation_status".to_string(),
@@ -169,7 +180,25 @@ pub fn best_sources_for(
         );
         row.insert(
             "requires_api_key".to_string(),
-            cap.requires_api_key.to_string(),
+            if cap.requires_api_key {
+                "yes".to_string()
+            } else {
+                "no".to_string()
+            },
+        );
+        row.insert(
+            "reason".to_string(),
+            format!(
+                "{} {} support for {}{}",
+                dataset_status,
+                canonical,
+                cap.asset_classes.join(","),
+                if cap.requires_api_key {
+                    " with provider credentials"
+                } else {
+                    " without provider credentials"
+                }
+            ),
         );
         row
     })
@@ -216,6 +245,12 @@ pub fn dataset_source_matrix(
 
 fn use_case_profile(use_case: &str) -> (&'static str, Option<&'static str>) {
     match use_case {
+        "crypto_spot_kline" => ("kline", Some("crypto_spot")),
+        "crypto_perp_funding" => ("funding", Some("crypto_perpetual")),
+        "equity_daily_ohlcv" => ("kline", Some("equity")),
+        "equity_intraday_ohlcv" => ("kline", Some("equity")),
+        "macro_rates" => ("tick", Some("forex")),
+        "macro_indicators" => ("macro", Some("macro")),
         "crypto_live_trading" => ("tick", Some("crypto_perpetual")),
         "crypto_backtest" => ("kline", Some("crypto_spot")),
         "equity_swing" => ("kline", Some("equity")),
@@ -229,6 +264,12 @@ fn use_case_profile(use_case: &str) -> (&'static str, Option<&'static str>) {
 /// Returns all use-cases supported by built-in recommendation rules.
 pub fn supported_use_cases() -> Vec<&'static str> {
     vec![
+        "crypto_spot_kline",
+        "crypto_perp_funding",
+        "equity_daily_ohlcv",
+        "equity_intraday_ohlcv",
+        "macro_rates",
+        "macro_indicators",
         "crypto_live_trading",
         "crypto_backtest",
         "equity_swing",
