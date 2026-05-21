@@ -88,6 +88,9 @@ println!("{}", result.quality_report.passed);
 
 ## Option 2 – Subprocess bridge (polyglot / Python / any language)
 
+For the canonical command list and common flows, see:
+[`docs/cli_usage.md`](./cli_usage.md)
+
 ### Step 1 – Build the binary
 
 ```bash
@@ -172,40 +175,14 @@ result = run_bridge(
 print(result["quality_report"]["passed"])
 ```
 
----
-
 ## Option 3 – gRPC microservice (planned – Phase 3)
 
 A future release will expose the same contract over gRPC (`tonic`), enabling
-remote consumption over the network without a local binary.  Pin to
-`contract_version: 1` now and the gRPC service will expose the same field names.
+remote consumption over the network without a local binary. Pin to
+`contract_version: 1` now and the gRPC service will keep the same contract fields.
 
----
-
-## Supported dataset types
-
-| Dataset | Domain | Typical source |
-|---|---|---|
-| `kline` | `market` | binance_futures, bybit_linear, kraken_spot, … |
-| `tick` | `market` | binance_futures, bybit_linear |
-| `trade` | `market` | binance_futures, coinbase_spot |
-| `orderbook` | `market` | binance_futures |
-| `funding` | `market` | binance_futures, bybit_linear |
-| `macro` | `macro` | fred, world_bank, ecb |
-| `news` | `news` | gdelt, hacker_news, finnhub |
-| `fundamentals` | `fundamentals` | financial_modeling_prep, sec_edgar |
-| `corporate_actions` | `fundamentals` | financial_modeling_prep |
-
----
-
-## Supported sources (24)
-
-`binance_futures`, `bybit_linear`, `kraken_spot`, `coinbase_spot`,
-`yahoo_unofficial`, `alpha_vantage`, `twelve_data`, `polygon_io`,
-`finnhub`, `quandl`, `iex_cloud`, `frankfurter_fx`, `coingecko`,
-`stooq`, `fred`, `gdelt`, `financial_modeling_prep`, `sec_edgar`,
-`world_bank`, `ecb`, `defillama`, `hacker_news`, `tefas_public`,
-`offline_fallback`
+Use `sources`, `capabilities`, and `query-dataset-summary` at runtime to discover
+the current supported source + dataset matrix instead of hard-coding static lists.
 
 ---
 

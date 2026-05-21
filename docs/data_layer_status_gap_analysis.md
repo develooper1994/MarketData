@@ -8,6 +8,17 @@ _Last updated: 2026-05-21_
 
 It can already be used as the core data platform for normalize/quality/storage/provenance and capability discovery/query, but a full cutover still needs adapter/runtime and platform-hardening work.
 
+## Actionable implementation roadmap (authoritative checklist)
+
+- [x] Keep provider/capability/query/recommendation logic centralized in this repo (`src/capabilities.rs`, `src/query.rs`, bridge query commands).
+- [x] Keep bridge discoverability high with `help`, `doctor`, `assert-contract`, query/recommend, and ingest flows.
+- [x] Consolidate docs into canonical set: README + architecture/migration + CLI usage + onboarding + status/gap checklist.
+- [ ] Register production-grade provider adapters by default in `SourceAdapterRegistry::default()`.
+- [ ] Add provider-fetch runtime path (not only caller-supplied raw payload ingestion).
+- [ ] Expand storage backends for production persistence requirements.
+- [ ] Add cross-project compatibility validation (at least one non-AlgoTradePlan consumer in CI).
+- [ ] Complete end-to-end parity tests for all consumer-critical datasets/use-cases.
+
 ---
 
 ## 1) What is fully covered today

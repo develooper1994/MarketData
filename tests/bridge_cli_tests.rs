@@ -17,9 +17,14 @@ fn help_command_prints_menu_and_examples() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("USAGE"));
     assert!(stdout.contains("COMMANDS"));
-    assert!(stdout.contains("EXAMPLES"));
+    assert!(stdout.contains("COMMON FLOWS"));
+    assert!(stdout.contains("MORE EXAMPLES"));
+    assert!(stdout.contains("assert-contract"));
+    assert!(stdout.contains("sources"));
+    assert!(stdout.contains("capabilities"));
     assert!(stdout.contains("query-best-sources"));
     assert!(stdout.contains("recommend-sources"));
+    assert!(stdout.contains("ingest"));
 }
 
 #[test]

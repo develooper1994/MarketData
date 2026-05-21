@@ -76,19 +76,40 @@ USAGE
   market_data_bridge --help
 
 COMMANDS
-  doctor                Show bridge/version/contract health information
-  assert-contract       Verify expected bridge contract version
-  capabilities          Print full source capability registry
-  sources               Print all source names
+  doctor                Health + contract info for automation and startup checks
+  assert-contract       Fail fast if the expected contract version is not matched
+  capabilities          Full provider capability metadata (all sources)
+  sources               Short source-name list for quick discovery
   query-sources-for     Filter sources by dataset/asset class/live support
-  query-best-sources    Return ranked source recommendations for a dataset
-  query-source-summary  Explain capabilities and status for one source
-  query-dataset-summary Explain availability summary for one dataset
-  supported-use-cases   List built-in recommendation use-cases
+  query-best-sources    Ranked recommendations for a dataset/use-case profile
+  query-source-summary  Explain capabilities + support status for one source
+  query-dataset-summary Explain source coverage summary for one dataset
+  supported-use-cases   List built-in recommendation flows
   recommend-sources     Recommend sources by use-case
   ingest                Normalize + quality-check + storage + provenance
 
-EXAMPLES
+COMMON FLOWS
+  1) Verify bridge compatibility
+     market_data_bridge doctor
+     market_data_bridge assert-contract --expected 1
+
+  2) Discover source coverage
+     market_data_bridge sources
+     market_data_bridge capabilities
+     market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
+
+  3) Query/recommend the best source
+     market_data_bridge query-best-sources --dataset kline --asset-class crypto_spot --limit 5
+     market_data_bridge query-source-summary --source binance_futures
+     market_data_bridge query-dataset-summary --dataset kline
+     market_data_bridge supported-use-cases
+     market_data_bridge recommend-sources --use-case crypto_backtest --limit 5
+
+  4) Ingest raw payload through the full pipeline
+     printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
+       market_data_bridge ingest --source offline --symbol BTCUSDT --datasets kline --asset-type crypto_spot
+
+MORE EXAMPLES
   market_data_bridge doctor
   market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
   market_data_bridge query-best-sources --dataset fundamentals --include-metadata-only

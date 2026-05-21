@@ -34,39 +34,31 @@ compatibility shim that delegates every data decision to `MarketData`.
 cargo test
 ```
 
-### Bridge CLI commands
+`README` is the primary entrypoint: use it for setup, first CLI runs, and links to
+the canonical docs below.
+
+### Bridge CLI (quick use)
 
 ```bash
-# show detailed command help + examples
+# detailed command menu + common flows
 cargo run --quiet --bin market_data_bridge -- help
 
-# verify setup
+# contract/health check
 cargo run --quiet --bin market_data_bridge -- doctor
-
-# assert compatibility with an expected contract version
 cargo run --quiet --bin market_data_bridge -- assert-contract --expected 1
 
-# list all 24 sources
+# source discovery
 cargo run --quiet --bin market_data_bridge -- sources
-
-# filter sources by dataset + asset class
 cargo run --quiet --bin market_data_bridge -- query-sources-for \
   --dataset kline --asset-class crypto_spot
 
-# ranked recommendations for a dataset
+# recommendation + explain
 cargo run --quiet --bin market_data_bridge -- query-best-sources \
   --dataset kline --asset-class crypto_spot --limit 5
-
-# source/dataset explain helpers
 cargo run --quiet --bin market_data_bridge -- query-source-summary --source binance_futures
 cargo run --quiet --bin market_data_bridge -- query-dataset-summary --dataset kline
-
-# use-case recommendations + supported use-cases
 cargo run --quiet --bin market_data_bridge -- recommend-sources --use-case crypto_backtest --limit 5
 cargo run --quiet --bin market_data_bridge -- supported-use-cases
-
-# full source capability metadata
-cargo run --quiet --bin market_data_bridge -- capabilities
 
 # ingest (normalize + quality + storage + provenance)
 printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
@@ -76,6 +68,9 @@ printf '{"kline":[[1716200000000,"10","11","9","10.5","42"]]}' | \
     --datasets kline \
     --asset-type crypto_spot
 ```
+
+For a concise CLI command reference and common workflows:
+[`docs/cli_usage.md`](docs/cli_usage.md)
 
 ### Library usage
 
@@ -109,51 +104,17 @@ let result = hub.ingest_from_raw(
 | Any Rust project | Crate dependency | `docs/new_project_onboarding.md` |
 | Future gRPC client | Network call (Phase 3) | — |
 
-## Architecture and migration plan
+## Canonical documentation set
 
-The authoritative document for the full migration and target architecture is:
+Keep docs intentionally small and non-duplicative:
 
-> **[`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md)**
-
-It covers: target ownership model, adapter/provider architecture, client
-surfaces, migration sequence, acceptance criteria, documentation requirements,
-and validation requirements.
-
-## AlgoTradePlan migration
-
-The destructive data-layer migration has been completed.  Key integration files:
-
-| File | Purpose |
+| Doc | Purpose |
 |---|---|
-| `integration/algotradeplan/hub_bridge.py` | Drop-in replacement for `AlgoTradePlan/src/algotradeplan/data/hub.py` |
-| `integration/algotradeplan/migration_cutover.md` | Step-by-step migration guide |
-| `integration/algotradeplan/datahub_bridge_example.py` | Standalone usage example |
-| `docs/algotradeplan_integration.md` | Architecture overview and CLI reference |
-| `docs/standalone_data_layer_migration_plan.md` | Authoritative standalone migration + reusable architecture plan |
-| `docs/data_layer_status_gap_analysis.md` | Current readiness summary, gap analysis, and full-cutover checklist |
-| `docs/new_project_onboarding.md` | How to use MarketData from any project |
-
-### Files removed from AlgoTradePlan
-
-| Deleted | Rust replacement |
-|---|---|
-| `data/normalize.py` | `src/normalize.rs` |
-| `data/quality.py` | `src/quality.rs` |
-| `data/storage.py` | `src/storage.rs` |
-| `data/provenance.py` | `src/provenance.rs` |
-| `data/capabilities.py` | `src/capabilities.rs` |
-| `data/query.py` | `src/query.rs` + `integration/algotradeplan/hub_bridge.py` |
-| `data/coverage.py` | `integration/algotradeplan/hub_bridge.py` |
-| `data/adapters/` | `integration/algotradeplan/hub_bridge.py` adapter-facing surface |
-
-## Rust migration roadmap
-
-| Phase | Status | Description |
-|---|---|---|
-| 1 | **Done** | Bridge CLI: `ingest`, `capabilities`, `sources`, `query-sources-for` |
-| 2 | **Done** | Remove AlgoTradePlan query/coverage ownership; keep thin bridge shim |
-| 3 | Planned | Expose bridge as gRPC microservice (`tonic`) |
-| 4 | Planned | Rust hot path: indicators, backtest core |
+| [`docs/standalone_data_layer_migration_plan.md`](docs/standalone_data_layer_migration_plan.md) | Authoritative architecture and migration ownership model |
+| [`docs/cli_usage.md`](docs/cli_usage.md) | Bridge CLI menu, command cheatsheet, and common flows |
+| [`docs/algotradeplan_integration.md`](docs/algotradeplan_integration.md) | AlgoTradePlan bridge wiring and cutover integration notes |
+| [`docs/new_project_onboarding.md`](docs/new_project_onboarding.md) | Reusable onboarding for any new consumer project |
+| [`docs/data_layer_status_gap_analysis.md`](docs/data_layer_status_gap_analysis.md) | Current readiness, risk notes, and actionable gap checklist |
 
 ## Data source support (24 sources)
 
