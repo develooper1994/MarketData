@@ -24,3 +24,27 @@ pub use query::{
     supported_use_cases,
 };
 pub use storage::{InMemoryStorage, LocalArtifactStorage, StorageBackend};
+
+/// Convenience re-exports for library consumers.
+///
+/// Import everything you need for typical usage with:
+///
+/// ```rust,no_run
+/// use market_data::prelude::*;
+/// ```
+pub mod prelude {
+    pub use crate::capabilities::{
+        SourceCapability, all_capabilities, canonical_dataset_name, capability_map,
+    };
+    pub use crate::contracts::{
+        DataRecord, DataRequest, IngestResult, ProvenanceRecord, QualityReport, StorageReceipt,
+    };
+    pub use crate::etl::Etl;
+    pub use crate::hub::{DataHub, HubError, RawSourceAdapter, SourceAdapterRegistry};
+    pub use crate::provenance::ManifestProvenanceTracker;
+    pub use crate::query::{
+        best_sources_for, dataset_summary, recommend_sources_for_use_case, source_summary,
+        sources_for, supported_use_cases,
+    };
+    pub use crate::storage::{InMemoryStorage, LocalArtifactStorage, StorageBackend};
+}

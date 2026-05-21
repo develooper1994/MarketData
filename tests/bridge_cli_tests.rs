@@ -726,3 +726,62 @@ fn ingest_normalizes_tick_dataset() {
     assert_eq!(payload["dataset_coverage"]["tick"], 1);
     assert_eq!(payload["records"][0]["domain"], "market");
 }
+
+#[test]
+fn unknown_command_exits_nonzero_and_shows_help() {
+    let output = Command::new(bridge_bin())
+        .arg("notacommand")
+        .output()
+        .expect("invocation with unknown command should run");
+
+    assert!(
+        !output.status.success(),
+        "unknown command should exit with non-zero status"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown command"),
+        "stderr should mention 'unknown command'"
+    );
+    assert!(
+        stderr.contains("USAGE") || stderr.contains("market_data_bridge"),
+        "stderr should include help/usage guidance"
+    );
+}
+
+#[test]
+fn prelude_exports_are_usable() {
+    use market_data::prelude::{
+        DataHub, InMemoryStorage, IngestResult, ManifestProvenanceTracker, QualityReport,
+        SourceAdapterRegistry, StorageReceipt,
+    };
+    use std::collections::HashMap;
+
+    let mut hub = DataHub::with_components(
+        Box::new(InMemoryStorage::default()),
+        ManifestProvenanceTracker::new(None::<&str>),
+        SourceAdapterRegistry::default(),
+    );
+    let result: IngestResult = hub
+        .ingest_from_raw(
+            "offline",
+            "BTCUSDT",
+            vec!["kline".to_string()],
+            HashMap::from([(
+                "kline".to_string(),
+                serde_json::json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
+            )]),
+            false,
+        )
+        .expect("prelude ingest should succeed");
+
+    let report: &QualityReport = &result.quality_report;
+    assert!(report.passed);
+    assert!(report.issues.is_empty());
+
+    let receipts: &Vec<StorageReceipt> = &result.storage_receipts;
+    assert!(receipts.is_empty(), "no storage with store=false");
+
+    assert_eq!(result.records.len(), 1);
+    assert_eq!(result.records[0].domain, "market");
+}
