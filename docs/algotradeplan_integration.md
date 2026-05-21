@@ -23,6 +23,7 @@ market_data_bridge (Rust)  ◄────────────────�
     ├── capabilities         → 24-source registry, dataset status, rankings
     ├── sources              → source name list
     ├── query-sources-for    → filtered source lookup
+    ├── query-dataset-matrix → machine-readable dataset/source coverage map
     └── ingest               → normalize + quality + storage + provenance
 ```
 

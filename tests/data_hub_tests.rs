@@ -131,3 +131,50 @@ fn etl_fetches_via_registered_adapter() {
         "mock:kline:BTCUSDT:1716200000000:1"
     );
 }
+
+#[test]
+fn default_registry_offline_adapter_supports_fetch_and_discovery() {
+    let mut hub = DataHub::default();
+    let result = hub
+        .ingest(
+            "offline",
+            "BTCUSDT",
+            vec!["kline".to_string()],
+            "1m",
+            10,
+            false,
+        )
+        .expect("offline adapter ingest should succeed");
+    assert_eq!(result.dataset_coverage.get("kline"), Some(&1));
+
+    let assets = hub
+        .discover_assets("offline", 2)
+        .expect("offline discovery should succeed");
+    assert_eq!(assets, vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]);
+}
+
+#[test]
+fn ingest_from_raw_resolves_ohlcv_alias_to_kline() {
+    let mut hub = DataHub::with_components(
+        Box::new(InMemoryStorage::default()),
+        ManifestProvenanceTracker::new(None::<&str>),
+        SourceAdapterRegistry::default(),
+    );
+
+    let result = hub
+        .ingest_from_raw(
+            "offline",
+            "BTCUSDT",
+            vec!["ohlcv".to_string()],
+            HashMap::from([(
+                "ohlcv".to_string(),
+                json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
+            )]),
+            false,
+        )
+        .expect("ingestion should succeed");
+
+    assert_eq!(result.requested_datasets, vec!["kline".to_string()]);
+    assert_eq!(result.dataset_coverage.get("kline"), Some(&1));
+    assert_eq!(result.records[0].domain, "market");
+}

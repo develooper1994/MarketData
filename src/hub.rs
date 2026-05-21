@@ -1,9 +1,10 @@
+use crate::capabilities::canonical_dataset_name;
 use crate::contracts::{DataRequest, IngestResult};
 use crate::normalize::{normalize_dataset, to_data_records};
 use crate::provenance::ManifestProvenanceTracker;
 use crate::quality::CanonicalDataQuality;
 use crate::storage::{InMemoryStorage, StorageBackend};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
@@ -22,7 +23,6 @@ pub trait RawSourceAdapter: Send + Sync {
     }
 }
 
-#[derive(Default)]
 pub struct SourceAdapterRegistry {
     adapters: HashMap<String, Arc<dyn RawSourceAdapter>>,
 }
@@ -34,6 +34,74 @@ impl SourceAdapterRegistry {
 
     pub fn get(&self, source: &str) -> Option<Arc<dyn RawSourceAdapter>> {
         self.adapters.get(source).cloned()
+    }
+}
+
+impl Default for SourceAdapterRegistry {
+    fn default() -> Self {
+        let mut registry = Self {
+            adapters: HashMap::new(),
+        };
+        registry.register("offline", Arc::new(OfflineReferenceAdapter));
+        registry.register("offline_fallback", Arc::new(OfflineReferenceAdapter));
+        registry
+    }
+}
+
+struct OfflineReferenceAdapter;
+
+impl RawSourceAdapter for OfflineReferenceAdapter {
+    fn fetch_raw(
+        &self,
+        _symbol: &str,
+        datasets: &[String],
+        _timeframe: &str,
+        _limit: usize,
+    ) -> HashMap<String, Value> {
+        // Intentionally deterministic reference payloads for offline smoke tests
+        // and bridge compatibility checks. This is a safe fallback adapter, not
+        // a production live-provider implementation.
+        datasets
+            .iter()
+            .map(|dataset| {
+                let canonical = canonical_dataset_name(dataset);
+                let payload = match canonical {
+                    "kline" => json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
+                    "tick" => {
+                        json!([{ "timestamp_ms": 1716200000000_i64, "bid": "10.5", "ask": "10.6", "last": "10.55" }])
+                    }
+                    "trade" => {
+                        json!([{ "t": 1716200000000_i64, "price": "10.5", "qty": "0.5", "side": "buy" }])
+                    }
+                    "orderbook" => {
+                        json!({ "timestamp_ms": 1716200000000_i64, "bids": [["10.0", "1"]], "asks": [["10.1", "1"]] })
+                    }
+                    "funding" => json!([{ "fundingTime": 1716200000000_i64, "fundingRate": "0.0001" }]),
+                    "news" => {
+                        json!([{ "publishedAt": "2024-01-01T00:00:00Z", "title": "Offline news sample", "url": "https://example.com/offline-news" }])
+                    }
+                    "macro" => json!([{ "date": "2024-01-01T00:00:00Z", "value": "5.5", "series_id": "OFFLINE_MACRO" }]),
+                    "fundamentals" => {
+                        json!([{ "date": "2024-01-01T00:00:00Z", "revenue": 100000000, "eps": "1.25" }])
+                    }
+                    "corporate_actions" => {
+                        json!([{ "date": "2024-01-01T00:00:00Z", "type": "dividend", "amount": "0.25" }])
+                    }
+                    _ => Value::Array(Vec::new()),
+                };
+                (canonical.to_string(), payload)
+            })
+            .collect()
+    }
+
+    fn discover_assets(&self, limit: usize) -> Vec<String> {
+        let assets = vec![
+            "BTCUSDT".to_string(),
+            "ETHUSDT".to_string(),
+            "AAPL".to_string(),
+            "MSFT".to_string(),
+        ];
+        assets.into_iter().take(limit).collect()
     }
 }
 
@@ -141,13 +209,14 @@ impl DataHub {
         let mut records = Vec::new();
         let mut source_issues = Vec::new();
         let mut dataset_coverage = BTreeMap::new();
+        let canonical_datasets = canonicalize_requested_datasets(&datasets);
         let raw_datasets_for_result = raw_datasets
             .iter()
             .map(|(dataset, payload)| (dataset.clone(), payload.clone()))
             .collect();
 
-        for dataset in &datasets {
-            if let Some(raw_payload) = raw_datasets.get(dataset) {
+        for dataset in &canonical_datasets {
+            if let Some(raw_payload) = select_raw_dataset_payload(&raw_datasets, dataset) {
                 let items = normalize_dataset(dataset, source, symbol, raw_payload);
                 dataset_coverage.insert(dataset.clone(), items.len());
                 normalized.insert(dataset.clone(), items.clone());
@@ -183,7 +252,7 @@ impl DataHub {
         Ok(IngestResult {
             source: source.to_string(),
             symbol: Some(symbol.to_string()),
-            requested_datasets: datasets,
+            requested_datasets: canonical_datasets,
             dataset_coverage,
             raw_datasets: raw_datasets_for_result,
             normalized,
@@ -202,4 +271,26 @@ impl DataHub {
             .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
         Ok(adapter.discover_assets(limit))
     }
+}
+
+fn canonicalize_requested_datasets(datasets: &[String]) -> Vec<String> {
+    let mut canonical = Vec::new();
+    for dataset in datasets {
+        let resolved = canonical_dataset_name(dataset).to_string();
+        if !canonical.iter().any(|item| item == &resolved) {
+            canonical.push(resolved);
+        }
+    }
+    canonical
+}
+
+fn select_raw_dataset_payload<'a>(
+    raw_datasets: &'a HashMap<String, Value>,
+    canonical_dataset: &str,
+) -> Option<&'a Value> {
+    raw_datasets.get(canonical_dataset).or_else(|| {
+        raw_datasets.iter().find_map(|(dataset_name, payload)| {
+            (canonical_dataset_name(dataset_name) == canonical_dataset).then_some(payload)
+        })
+    })
 }

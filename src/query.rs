@@ -194,6 +194,26 @@ pub fn dataset_summary(
     m
 }
 
+/// Returns machine-readable dataset coverage for all known datasets.
+pub fn dataset_source_matrix(
+    capabilities: &HashMap<String, SourceCapability>,
+) -> HashMap<String, serde_json::Value> {
+    let mut datasets = std::collections::BTreeSet::new();
+    for capability in capabilities.values() {
+        for dataset in &capability.datasets {
+            datasets.insert(canonical_dataset_name(dataset).to_string());
+        }
+    }
+
+    datasets
+        .into_iter()
+        .map(|dataset| {
+            let summary = dataset_summary(capabilities, &dataset);
+            (dataset, serde_json::json!(summary))
+        })
+        .collect()
+}
+
 fn use_case_profile(use_case: &str) -> (&'static str, Option<&'static str>) {
     match use_case {
         "crypto_live_trading" => ("tick", Some("crypto_perpetual")),
@@ -327,6 +347,15 @@ mod tests {
         let result = dataset_summary(&caps, "kline");
         assert_eq!(result["dataset"], "kline");
         assert!(result["source_count"].as_u64().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn dataset_source_matrix_contains_kline_row() {
+        let caps = capability_map();
+        let matrix = dataset_source_matrix(&caps);
+        assert!(matrix.contains_key("kline"));
+        let kline = matrix.get("kline").expect("kline matrix row should exist");
+        assert_eq!(kline["dataset"], "kline");
     }
 
     #[test]

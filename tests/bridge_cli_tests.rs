@@ -67,6 +67,15 @@ fn short_aliases_work_for_query_and_listing() {
             .as_array()
             .is_some_and(|arr| arr.iter().any(|v| v == "binance_futures"))
     );
+
+    let matrix_output = Command::new(bridge_bin())
+        .arg("qdm")
+        .output()
+        .expect("qdm alias should run");
+    assert!(matrix_output.status.success());
+    let matrix_payload: Value =
+        serde_json::from_slice(&matrix_output.stdout).expect("qdm output should be valid json");
+    assert_eq!(matrix_payload["kline"]["dataset"], "kline");
 }
 
 #[test]
@@ -384,6 +393,20 @@ fn query_dataset_summary_returns_counts() {
         .expect("query-dataset-summary output should be valid");
     assert_eq!(payload["dataset"], "kline");
     assert!(payload["source_count"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn query_dataset_matrix_returns_machine_readable_coverage() {
+    let output = Command::new(bridge_bin())
+        .arg("query-dataset-matrix")
+        .output()
+        .expect("query-dataset-matrix command should run");
+
+    assert!(output.status.success());
+    let payload: Value = serde_json::from_slice(&output.stdout)
+        .expect("query-dataset-matrix output should be valid");
+    assert_eq!(payload["kline"]["dataset"], "kline");
+    assert!(payload["kline"]["source_count"].as_u64().unwrap_or(0) > 0);
 }
 
 #[test]
@@ -744,9 +767,49 @@ fn unknown_command_exits_nonzero_and_shows_help() {
         "stderr should mention 'unknown command'"
     );
     assert!(
+        stderr.contains("market_data_bridge help"),
+        "stderr should explicitly point users to the help command"
+    );
+    assert!(
         stderr.contains("USAGE") || stderr.contains("market_data_bridge"),
         "stderr should include help/usage guidance"
     );
+}
+
+#[test]
+fn ingest_accepts_kline_alias_ohlcv() {
+    let mut child = Command::new(bridge_bin())
+        .args([
+            "ingest",
+            "--source",
+            "offline",
+            "--symbol",
+            "BTCUSDT",
+            "--dataset",
+            "ohlcv",
+            "--asset-type",
+            "crypto_spot",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("bridge ingest command should run");
+
+    let input = json!({
+        "ohlcv": [[1716200000000_i64, "10", "11", "9", "10.5", "42"]],
+    });
+    serde_json::to_writer(
+        child.stdin.take().expect("stdin should be available"),
+        &input,
+    )
+    .expect("input should serialize");
+    let output = child.wait_with_output().expect("bridge should complete");
+
+    assert!(output.status.success());
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
+    assert_eq!(payload["dataset_coverage"]["kline"], 1);
+    assert_eq!(payload["requested_datasets"][0], "kline");
 }
 
 #[test]
