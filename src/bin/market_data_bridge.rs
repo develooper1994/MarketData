@@ -34,6 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let value = serde_json::to_value(caps)?;
             println!("{}", serde_json::to_string_pretty(&value)?);
         }
+        Some("assert-contract") => assert_contract(args.collect())?,
         Some("sources") => {
             let caps = all_capabilities();
             let names: Vec<String> = caps.into_iter().map(|c| c.source).collect();
@@ -46,12 +47,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => {
             return Err(
-                "usage: market_data_bridge <doctor|capabilities|sources|query-sources-for|ingest> [options]"
+                "usage: market_data_bridge <doctor|capabilities|assert-contract|sources|query-sources-for|ingest> [options]"
                     .into(),
             );
         }
     }
 
+    Ok(())
+}
+
+fn assert_contract(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut expected: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--expected" => {
+                i += 1;
+                expected = args.get(i).cloned();
+            }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let expected = expected.ok_or("--expected is required")?;
+    let actual = BRIDGE_CONTRACT_VERSION;
+    if expected != actual {
+        return Err(
+            format!("contract version mismatch: expected {expected}, actual {actual}").into(),
+        );
+    }
+
+    print_json(
+        &json!({
+            "status": "ok",
+            "expected": expected,
+            "actual": actual,
+            "compatible": true
+        }),
+        false,
+    )?;
     Ok(())
 }
 

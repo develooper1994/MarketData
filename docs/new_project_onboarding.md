@@ -38,6 +38,14 @@ Run `market_data_bridge doctor` to verify the contract version your binary imple
 
 Pin your client to a known `contract_version` to detect breaking changes early.
 
+For CI/startup fail-fast enforcement, use:
+
+```bash
+market_data_bridge assert-contract --expected 1
+```
+
+The command exits non-zero when the bridge contract differs from the pinned version.
+
 ---
 
 ## Option 1 – Rust-native (recommended for Rust projects)
