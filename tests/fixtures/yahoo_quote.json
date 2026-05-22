@@ -1,0 +1,12 @@
+{
+  "quoteResponse": {
+    "result": [
+      {
+        "symbol": "BTCUSDT",
+        "regularMarketPrice": 27000.5,
+        "regularMarketTime": 1716200000
+      }
+    ],
+    "error": null
+  }
+}

@@ -10,6 +10,10 @@ chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+thiserror = "1.0"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tefas = { package = "lib", path = "external_tools/tefas-cli/crates/lib" }
 
 [dev-dependencies]
 tempfile = "3"
+httpmock = "0.6"

@@ -404,6 +404,86 @@ pub fn all_capabilities() -> Vec<SourceCapability> {
             implementation_status: "live".into(),
             ..default_cap("hacker_news")
         },
+        // Turkish provider additions (community / scaffolded adapters)
+        SourceCapability {
+            source: "btcturk".into(),
+            asset_classes: vec!["crypto_spot".into()],
+            datasets: vec!["tick".into()],
+            supports_discovery: false,
+            supports_history: true,
+            supports_realtime: false,
+            rate_limit_notes: "Public BTCTurk REST ticker endpoint.".into(),
+            quality_level: "best_effort".into(),
+            implemented_datasets: vec!["tick".into()],
+            implementation_status: "partial".into(),
+            ..default_cap("btcturk")
+        },
+        SourceCapability {
+            source: "kap".into(),
+            asset_classes: vec!["equity".into()],
+            datasets: vec!["news".into(), "fundamentals".into(), "corporate_actions".into()],
+            supports_discovery: true,
+            supports_history: true,
+            supports_realtime: false,
+            rate_limit_notes: "KAP disclosures API (Turkey)".into(),
+            quality_level: "best_effort".into(),
+            implemented_datasets: vec!["news".into(), "fundamentals".into(), "corporate_actions".into()],
+            implementation_status: "partial".into(),
+            ..default_cap("kap")
+        },
+        SourceCapability {
+            source: "fintables".into(),
+            asset_classes: vec!["equity".into()],
+            datasets: vec!["fundamentals".into(), "corporate_actions".into()],
+            supports_discovery: false,
+            supports_history: true,
+            supports_realtime: false,
+            rate_limit_notes: "HTML scraping; opt-in via ENABLE_SCRAPING_PROVIDERS".into(),
+            quality_level: "community".into(),
+            implemented_datasets: vec!["fundamentals".into(), "corporate_actions".into()],
+            implementation_status: "partial".into(),
+            notes: "Scraping-based provider; enable with ENABLE_SCRAPING_PROVIDERS=true".into(),
+            ..default_cap("fintables")
+        },
+        SourceCapability {
+            source: "tradingview".into(),
+            asset_classes: vec!["equity".into(), "crypto_spot".into(), "forex".into()],
+            datasets: vec!["tick".into()],
+            supports_discovery: true,
+            supports_history: false,
+            supports_realtime: false,
+            rate_limit_notes: "Scanner endpoints optional via TRADINGVIEW_SCANNER_URL".into(),
+            quality_level: "community".into(),
+            implemented_datasets: vec![],
+            implementation_status: "partial".into(),
+            ..default_cap("tradingview")
+        },
+        SourceCapability {
+            source: "paratic".into(),
+            asset_classes: vec!["crypto_spot".into(), "equity".into()],
+            datasets: vec!["tick".into()],
+            supports_discovery: false,
+            supports_history: true,
+            supports_realtime: false,
+            rate_limit_notes: "Public Paratic ticker endpoint (best-effort)".into(),
+            quality_level: "best_effort".into(),
+            implemented_datasets: vec!["tick".into()],
+            implementation_status: "partial".into(),
+            ..default_cap("paratic")
+        },
+        SourceCapability {
+            source: "dovizcom".into(),
+            asset_classes: vec!["forex".into()],
+            datasets: vec!["tick".into()],
+            supports_discovery: false,
+            supports_history: true,
+            supports_realtime: false,
+            rate_limit_notes: "Public FX endpoints on doviz.com (best-effort)".into(),
+            quality_level: "best_effort".into(),
+            implemented_datasets: vec!["tick".into()],
+            implementation_status: "partial".into(),
+            ..default_cap("dovizcom")
+        },
         SourceCapability {
             source: "tefas_public".into(),
             asset_classes: vec!["mutual_fund".into(), "pension_fund".into()],
@@ -411,6 +491,8 @@ pub fn all_capabilities() -> Vec<SourceCapability> {
                 "fund_nav".into(), "fund_profile".into(), "fund_return".into(),
                 "fund_allocation".into(), "fund_size".into(), "fund_fee".into(),
                 "fund_announcement".into(), "fund_statistics".into(),
+                // Allow mapping TEFAS fund price series into market-style datasets
+                "kline".into(), "tick".into(),
             ],
             supports_discovery: true,
             supports_history: true,
@@ -420,6 +502,8 @@ pub fn all_capabilities() -> Vec<SourceCapability> {
                 "fund_nav".into(), "fund_profile".into(), "fund_return".into(),
                 "fund_allocation".into(), "fund_size".into(), "fund_fee".into(),
                 "fund_announcement".into(), "fund_statistics".into(),
+                // TEFAS will synthesize basic `kline`/`tick` views from price series
+                "kline".into(), "tick".into(),
             ],
             implementation_status: "partial".into(),
             notes: "Optional tefas-cli integration. Uses TEFAS public web JSON endpoints.".into(),
@@ -479,7 +563,7 @@ mod tests {
         assert!(sources.contains(&"binance_futures"));
         assert!(sources.contains(&"tefas_public"));
         assert!(sources.contains(&"offline_fallback"));
-        assert_eq!(caps.len(), 25);
+        assert_eq!(caps.len(), 31);
     }
 
     #[test]

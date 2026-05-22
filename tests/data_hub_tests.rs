@@ -15,7 +15,7 @@ impl RawSourceAdapter for MockAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> HashMap<String, serde_json::Value> {
+    ) -> Result<HashMap<String, serde_json::Value>, market_data::providers::errors::ProviderError> {
         let mut out = HashMap::new();
         for dataset in datasets {
             if dataset == "kline" {
@@ -25,7 +25,7 @@ impl RawSourceAdapter for MockAdapter {
                 );
             }
         }
-        out
+        Ok(out)
     }
 
     fn discover_assets(&self, _limit: usize) -> Vec<String> {

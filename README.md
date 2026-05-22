@@ -34,6 +34,33 @@ compatibility shim that delegates every data decision to `MarketData`.
 ```bash
 cargo test
 ```
+ 
+## Provider configuration & testing
+
+- Enable scraping-based providers (opt-in): set `ENABLE_SCRAPING_PROVIDERS=true` to enable HTML-scraping providers such as `fintables`. This opt-in prevents accidental scraping during normal runs.
+
+- Override provider base URLs for testing: adapters support overriding their base endpoints via environment variables: `YAHOO_BASE_URL`, `BTCTURK_BASE_URL`, `KAP_BASE_URL`, `FINTABLES_BASE_URL`. For tests prefer injecting mock adapters rather than mutating global env.
+
+- Testing best practice:
+   - Do NOT use `std::env::set_var` in tests; it's process-global and unsafe for parallel test execution.
+   - Use `httpmock::MockServer` and register a test-local adapter into `SourceAdapterRegistry` that points to `MockServer::base_url()`.
+   - See `tests/providers_kap_test.rs` and `tests/providers_fintables_test.rs` for concrete examples.
+
+- Quick example (test):
+
+```rust
+let server = httpmock::MockServer::start();
+let mut registry = SourceAdapterRegistry::default();
+registry.register("kap", Arc::new(TestKapAdapter::new(server.base_url())));
+```
+
+- Run tests:
+```bash
+cargo test -q
+```
+
+- Live-only online checks:
+Set `MARKET_DATA_LIVE_TESTS=1` (see `./scripts/precommit_live_check.sh`).
 
 Live online fetch doğrulamasini precommit asamasinda calistirmak icin:
 
@@ -42,6 +69,9 @@ Live online fetch doğrulamasini precommit asamasinda calistirmak icin:
 ```
 
 Bu komut `MARKET_DATA_LIVE_TESTS=1` ile canli adaptor matrisi testini kosar. Varsayilan `cargo test` offline-safe kalir.
+
+TEFAS provider note:
+- The TEFAS provider prefers using the `tefas-cli` binary. To build it, run `./scripts/setup_external_tools.sh` and then export `TEFAS_CLI_CMD` pointing to `external_tools/tefas-cli/target/release/cli`. See `docs/smoke_tests.md` for examples.
 
 `README` is the primary entrypoint: use it for setup, first CLI runs, and links to
 the canonical docs below.

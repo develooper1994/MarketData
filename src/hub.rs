@@ -16,7 +16,7 @@ pub trait RawSourceAdapter: Send + Sync {
         datasets: &[String],
         timeframe: &str,
         limit: usize,
-    ) -> HashMap<String, Value>;
+    ) -> Result<HashMap<String, Value>, crate::providers::errors::ProviderError>;
 
     fn discover_assets(&self, _limit: usize) -> Vec<String> {
         Vec::new()
@@ -57,11 +57,11 @@ impl RawSourceAdapter for OfflineReferenceAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> HashMap<String, Value> {
+    ) -> Result<HashMap<String, Value>, crate::providers::errors::ProviderError> {
         // Intentionally deterministic reference payloads for offline smoke tests
         // and bridge compatibility checks. This is a safe fallback adapter, not
         // a production live-provider implementation.
-        datasets
+        Ok(datasets
             .iter()
             .map(|dataset| {
                 let canonical = canonical_dataset_name(dataset);
@@ -91,7 +91,7 @@ impl RawSourceAdapter for OfflineReferenceAdapter {
                 };
                 (canonical.to_string(), payload)
             })
-            .collect()
+            .collect())
     }
 
     fn discover_assets(&self, limit: usize) -> Vec<String> {
@@ -109,6 +109,7 @@ impl RawSourceAdapter for OfflineReferenceAdapter {
 pub enum HubError {
     UnknownSource(String),
     Storage(std::io::Error),
+    Provider(crate::providers::errors::ProviderError),
 }
 
 impl Display for HubError {
@@ -116,6 +117,7 @@ impl Display for HubError {
         match self {
             HubError::UnknownSource(source) => write!(f, "Unknown source: {source}"),
             HubError::Storage(error) => write!(f, "Storage/provenance failure: {error}"),
+            HubError::Provider(err) => write!(f, "Provider error: {err}"),
         }
     }
 }
@@ -125,6 +127,12 @@ impl std::error::Error for HubError {}
 impl From<std::io::Error> for HubError {
     fn from(value: std::io::Error) -> Self {
         HubError::Storage(value)
+    }
+}
+
+impl From<crate::providers::errors::ProviderError> for HubError {
+    fn from(err: crate::providers::errors::ProviderError) -> Self {
+        HubError::Provider(err)
     }
 }
 
@@ -174,7 +182,7 @@ impl DataHub {
             .get(source)
             .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
 
-        let raw = adapter.fetch_raw(symbol, &datasets, timeframe, limit);
+        let raw = adapter.fetch_raw(symbol, &datasets, timeframe, limit)?;
         self.ingest_from_raw(source, symbol, datasets, raw, store)
     }
 

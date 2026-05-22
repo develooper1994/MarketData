@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::env;
 use std::io::{self, IsTerminal, Read};
 use std::time::Duration;
+use std::process::Command;
 
 /// Increment this any time the bridge JSON contract changes incompatibly.
 const BRIDGE_CONTRACT_VERSION: &str = "1";
@@ -1012,7 +1013,9 @@ fn ingest(
         Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>
     };
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
-    let mut hub = DataHub::with_components(storage, provenance, SourceAdapterRegistry::default());
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut hub = DataHub::with_components(storage, provenance, registry);
     let raw_input = if let Some(raw_input_override) = raw_input_override {
         raw_input_override
     } else {
@@ -1061,7 +1064,9 @@ fn run_ingest_with_live_fetch(
         Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>
     };
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
-    let mut hub = DataHub::with_components(storage, provenance, SourceAdapterRegistry::default());
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut hub = DataHub::with_components(storage, provenance, registry);
     let mut extra_issues: Vec<String> = Vec::new();
 
     let mut metadata: Map<String, Value> = Map::new();
@@ -1349,7 +1354,18 @@ fn fetch_live_raw_datasets(
     let caps = capability_map();
     let mut issues = Vec::new();
     let mut fetchable = Vec::new();
-    if let Some(cap) = caps.get(source) {
+
+    // Allow common CLI-friendly aliases to map to canonical capability names.
+    let mut source_key = source.to_string();
+    if !caps.contains_key(source_key.as_str()) {
+        match source {
+            "yahoo" => source_key = "yahoo_unofficial".to_string(),
+            "tefas" => source_key = "tefas_public".to_string(),
+            _ => {}
+        }
+    }
+
+    if let Some(cap) = caps.get(source_key.as_str()) {
         if cap.requires_api_key
             && let Some(env_name) = &cap.api_key_env
             && env::var(env_name).unwrap_or_default().trim().is_empty()
@@ -1360,12 +1376,12 @@ fn fetch_live_raw_datasets(
 
         for dataset in datasets {
             let canonical = market_data::canonical_dataset_name(dataset).to_string();
-            if !cap.datasets.iter().any(|item| item == &canonical)
-                || !cap.implemented_datasets.iter().any(|item| item == &canonical)
-            {
-                issues.push(format!("unsupported_dataset:{canonical}"));
-                continue;
-            }
+                if !cap.datasets.iter().any(|item| item == &canonical)
+                    || !cap.implemented_datasets.iter().any(|item| item == &canonical)
+                {
+                    issues.push(format!("unsupported_dataset:{canonical}"));
+                    continue;
+                }
             fetchable.push(canonical);
         }
     } else {
@@ -1375,7 +1391,7 @@ fn fetch_live_raw_datasets(
 
     let mut out = HashMap::new();
     for dataset in fetchable {
-        match fetch_live_dataset(source, symbol, &dataset, timeframe, limit) {
+        match fetch_live_dataset(source_key.as_str(), symbol, &dataset, timeframe, limit) {
             Ok(value) => {
                 out.insert(dataset, value);
             }
@@ -1414,6 +1430,16 @@ fn fetch_live_dataset(
         ("kraken_spot", "tick") => fetch_kraken_tick(symbol),
         ("kraken_spot", "trade") => fetch_kraken_trade(symbol, limit),
         ("kraken_spot", "orderbook") => fetch_kraken_orderbook(symbol),
+        ("btcturk", "tick") => fetch_btcturk_tick(symbol),
+        ("paratic", "tick") => fetch_paratic_tick(symbol),
+        ("dovizcom", "tick") => fetch_dovizcom_tick(symbol),
+        ("kap", "news") => fetch_kap_disclosures(symbol),
+        ("kap", "fundamentals") => fetch_kap_disclosures(symbol),
+        ("kap", "corporate_actions") => fetch_kap_disclosures(symbol),
+        ("fintables", "fundamentals") => fetch_fintables_fundamentals(symbol),
+        ("fintables", "corporate_actions") => fetch_fintables_fundamentals(symbol),
+        ("tefas_public", "fundamentals") => fetch_tefas_values(symbol),
+        ("tefas_public", "corporate_actions") => fetch_tefas_values(symbol),
         ("coinbase_spot", "kline") => fetch_coinbase_kline(symbol, timeframe, limit),
         ("coinbase_spot", "tick") => fetch_coinbase_tick(symbol),
         ("coinbase_spot", "trade") => fetch_coinbase_trade(symbol, limit),
@@ -1429,8 +1455,189 @@ fn fetch_live_dataset(
         ("binance_spot", "kline") => fetch_binance_spot_kline(symbol, timeframe, limit),
         ("binance_spot", "trade") => fetch_binance_spot_trade(symbol, limit),
         ("binance_spot", "orderbook") => fetch_binance_spot_orderbook(symbol),
+        // Generic TEFAS fallback: attempt TEFAS values endpoint for fund datasets
+        ("tefas_public", "kline") => fetch_tefas_kline(symbol),
+        ("tefas_public", "tick") => fetch_tefas_tick(symbol),
+        (_, _) if source == "tefas_public" => fetch_tefas_values(symbol),
         _ => Err(format!("unsupported_dataset:{dataset}")),
     }
+}
+
+fn fetch_btcturk_tick(symbol: &str) -> Result<Value, String> {
+    let base = std::env::var("BTCTURK_BASE_URL").unwrap_or_else(|_| "https://api.btcturk.com".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/api/v2/ticker?pairSymbol={}", base, symbol);
+    let json_v = fetch_json(&url, "btcturk")?;
+    if let Some(arr) = json_v.get("data").and_then(|d| d.as_array()) {
+        if let Some(item) = arr.get(0) {
+            let mut map = serde_json::Map::new();
+            if let Some(last) = item.get("last") {
+                map.insert("last".to_string(), last.clone());
+            }
+            if let Some(bid) = item.get("bid") {
+                map.insert("bid".to_string(), bid.clone());
+            }
+            if let Some(ask) = item.get("ask") {
+                map.insert("ask".to_string(), ask.clone());
+            }
+            if let Some(ts) = item.get("timestamp") {
+                map.insert("timestamp_ms".to_string(), ts.clone());
+            }
+            map.insert("source".to_string(), Value::String("btcturk".to_string()));
+            return Ok(Value::Array(vec![Value::Object(map)]));
+        }
+    }
+    Ok(Value::Array(Vec::new()))
+}
+
+fn fetch_kap_disclosures(symbol: &str) -> Result<Value, String> {
+    let base = std::env::var("KAP_BASE_URL").unwrap_or_else(|_| "https://www.kap.org.tr".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/tr/api/disclosures?company={}", base, symbol);
+    let mut json_v = fetch_json(&url, "kap")?;
+    if let Some(arr) = json_v.as_array_mut() {
+        for item in arr.iter_mut() {
+            if let Value::Object(map) = item {
+                map.insert("source".to_string(), Value::String("kap".to_string()));
+            }
+        }
+        return Ok(Value::Array(arr.clone()));
+    }
+    // wrap non-array responses
+    Ok(Value::Array(vec![json_v]))
+}
+
+fn fetch_fintables_fundamentals(symbol: &str) -> Result<Value, String> {
+    let scraping_enabled = std::env::var("ENABLE_SCRAPING_PROVIDERS").unwrap_or_default() == "true";
+    if !scraping_enabled {
+        return Err("scraping_disabled:fintables".to_string());
+    }
+    let base = std::env::var("FINTABLES_BASE_URL").unwrap_or_else(|_| "https://fintables.com".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/sirketler/{}/sermaye-artirimlari-temettuler", base, symbol);
+    let text = fetch_text(&url, "fintables")?;
+    Ok(json!([{"html": text, "source": "fintables", "symbol": symbol}]))
+}
+
+fn fetch_paratic_tick(symbol: &str) -> Result<Value, String> {
+    let base = std::env::var("PARATIC_BASE_URL").unwrap_or_else(|_| "https://piyasa.paratic.com".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/API/g.php?symbol={}", base, symbol);
+    let json_v = fetch_json(&url, "paratic")?;
+    Ok(json_v)
+}
+
+fn fetch_dovizcom_tick(symbol: &str) -> Result<Value, String> {
+    let base = std::env::var("DOVIZCOM_BASE_URL").unwrap_or_else(|_| "https://www.doviz.com".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/api/v1/symbols/{}/ticker", base, symbol);
+    let json_v = fetch_json(&url, "dovizcom")?;
+    Ok(json_v)
+}
+
+fn fetch_tefas_values(symbol: &str) -> Result<Value, String> {
+    // Prefer using an external tefas CLI tool when available. The CLI exposes
+    // a `query fonFiyatBilgiGetir --set fonKodu=<code> --format json` invocation
+    // which returns TEFAS API JSON. Allow overriding the binary via
+    // `TEFAS_CLI_CMD` environment variable.
+    fn try_run_cli(cmd: &str, args: &[&str]) -> Result<Value, String> {
+        let output = Command::new(cmd)
+            .args(args)
+            .output()
+            .map_err(|e| format!("tefas_cli_spawn_error:{e}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("tefas_cli_exit:{}:{}", output.status, stderr));
+        }
+        let stdout = String::from_utf8(output.stdout).map_err(|e| format!("tefas_cli_output_utf8:{e}"))?;
+        serde_json::from_str::<Value>(&stdout).map_err(|e| format!("tefas_cli_output_json:{e}"))
+    }
+
+    // Build candidate binary names/paths and args
+    let possible_bins: Vec<String> = vec![
+        std::env::var("TEFAS_CLI_CMD").unwrap_or_default(),
+        "tefas-cli".to_string(),
+        "cli".to_string(),
+        "tefas".to_string(),
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect();
+
+    let args = vec![
+        "query".to_string(),
+        "fonFiyatBilgiGetir".to_string(),
+        "--set".to_string(),
+        format!("fonKodu={}", symbol),
+        "--set".to_string(),
+        "periyod=1".to_string(),
+        "--format".to_string(),
+        "json".to_string(),
+    ];
+
+    for bin in possible_bins {
+        let arg_slices: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+        if let Ok(v) = try_run_cli(&bin, &arg_slices) {
+            return Ok(v);
+        }
+    }
+
+    // Fallback to simple TEFAS public HTTP endpoint if CLI not available or fails
+    let base = std::env::var("TEFAS_BASE_URL").unwrap_or_else(|_| "https://www.tefas.gov.tr".to_string());
+    let base = base.trim_end_matches('/');
+    let url = format!("{}/api/values?symbol={}", base, symbol);
+    let json_v = fetch_json(&url, "tefas")?;
+    Ok(json_v)
+}
+
+fn fetch_tefas_kline(symbol: &str) -> Result<Value, String> {
+    // Reuse the existing CLI-first query but synthesise OHLCV kline rows
+    let v = fetch_tefas_values(symbol)?;
+    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+        let mut out_arr = Vec::new();
+        for item in arr {
+            if let Some(obj) = item.as_object() {
+                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
+                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok()
+                    .map(|d| d.and_hms_opt(0,0,0).unwrap())
+                    .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                    .unwrap_or(0_i64);
+                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                let mut rec = serde_json::Map::new();
+                rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
+                rec.insert("open".to_string(), price.clone());
+                rec.insert("high".to_string(), price.clone());
+                rec.insert("low".to_string(), price.clone());
+                rec.insert("close".to_string(), price.clone());
+                rec.insert("volume".to_string(), Value::Null);
+                out_arr.push(Value::Object(rec));
+            }
+        }
+        return Ok(Value::Array(out_arr));
+    }
+    Ok(Value::Array(Vec::new()))
+}
+
+fn fetch_tefas_tick(symbol: &str) -> Result<Value, String> {
+    let v = fetch_tefas_values(symbol)?;
+    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+        if let Some(latest) = arr.last() {
+            if let Some(obj) = latest.as_object() {
+                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
+                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok()
+                    .map(|d| d.and_hms_opt(0,0,0).unwrap())
+                    .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                    .unwrap_or(0_i64);
+                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                let mut rec = serde_json::Map::new();
+                rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
+                rec.insert("last".to_string(), price.clone());
+                rec.insert("price".to_string(), price);
+                return Ok(Value::Array(vec![Value::Object(rec)]));
+            }
+        }
+    }
+    Ok(Value::Array(Vec::new()))
 }
 
 fn http_client() -> Result<Client, String> {

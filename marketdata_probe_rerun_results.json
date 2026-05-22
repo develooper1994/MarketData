@@ -1,0 +1,662 @@
+[
+  {
+    "source": "alpha_vantage",
+    "symbol": "AAPL",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:ALPHAVANTAGE_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "alpha_vantage",
+    "symbol": "AAPL",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:ALPHAVANTAGE_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "alpha_vantage",
+    "symbol": "AAPL",
+    "dataset": "fundamentals",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fundamentals",
+      "api_key_required:ALPHAVANTAGE_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "twelve_data",
+    "symbol": "BTCUSDT",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:TWELVEDATA_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "twelve_data",
+    "symbol": "BTCUSDT",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:TWELVEDATA_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "polygon_io",
+    "symbol": "BTCUSDT",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:POLYGON_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "polygon_io",
+    "symbol": "BTCUSDT",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:POLYGON_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "polygon_io",
+    "symbol": "BTCUSDT",
+    "dataset": "trade",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:trade",
+      "api_key_required:POLYGON_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "polygon_io",
+    "symbol": "BTCUSDT",
+    "dataset": "news",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:news",
+      "api_key_required:POLYGON_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "polygon_io",
+    "symbol": "BTCUSDT",
+    "dataset": "corporate_actions",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:corporate_actions",
+      "api_key_required:POLYGON_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "finnhub",
+    "symbol": "BTCUSDT",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:FINNHUB_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "finnhub",
+    "symbol": "BTCUSDT",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:FINNHUB_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "finnhub",
+    "symbol": "BTCUSDT",
+    "dataset": "news",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:news",
+      "api_key_required:FINNHUB_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "finnhub",
+    "symbol": "BTCUSDT",
+    "dataset": "fundamentals",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fundamentals",
+      "api_key_required:FINNHUB_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "quandl",
+    "symbol": "AAPL",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:QUANDL_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "quandl",
+    "symbol": "AAPL",
+    "dataset": "macro",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:macro",
+      "api_key_required:QUANDL_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "iex_cloud",
+    "symbol": "AAPL",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:IEX_CLOUD_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "iex_cloud",
+    "symbol": "AAPL",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:IEX_CLOUD_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "iex_cloud",
+    "symbol": "AAPL",
+    "dataset": "trade",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:trade",
+      "api_key_required:IEX_CLOUD_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "iex_cloud",
+    "symbol": "AAPL",
+    "dataset": "news",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:news",
+      "api_key_required:IEX_CLOUD_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "iex_cloud",
+    "symbol": "AAPL",
+    "dataset": "corporate_actions",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:corporate_actions",
+      "api_key_required:IEX_CLOUD_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "stooq",
+    "symbol": "aapl.us",
+    "dataset": "kline",
+    "original_status": "no_data",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:macro",
+      "unsupported_dataset:macro"
+    ],
+    "tried_datasets": [
+      "kline",
+      "tick",
+      "trade",
+      "macro"
+    ]
+  },
+  {
+    "source": "fred",
+    "symbol": "BTCUSDT",
+    "dataset": "macro",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:macro",
+      "api_key_required:FRED_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "gdelt",
+    "symbol": "bitcoin",
+    "dataset": "news",
+    "original_status": "network_error",
+    "attempts": 1,
+    "new_status": "network_error",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:news",
+      "network_error:gdelt:error sending request for url (https://api.gdeltproject.org/api/v2/doc/doc?query=bitcoin&mode=artlist&format=json&maxrecords=1)"
+    ],
+    "tried_datasets": [
+      "news"
+    ]
+  },
+  {
+    "source": "financial_modeling_prep",
+    "symbol": "AAPL",
+    "dataset": "tick",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:tick",
+      "api_key_required:FMP_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "financial_modeling_prep",
+    "symbol": "AAPL",
+    "dataset": "kline",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "api_key_required:FMP_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "financial_modeling_prep",
+    "symbol": "AAPL",
+    "dataset": "fundamentals",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fundamentals",
+      "api_key_required:FMP_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "financial_modeling_prep",
+    "symbol": "AAPL",
+    "dataset": "corporate_actions",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:corporate_actions",
+      "api_key_required:FMP_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "financial_modeling_prep",
+    "symbol": "AAPL",
+    "dataset": "news",
+    "original_status": "needs_api_key",
+    "attempts": 0,
+    "new_status": "skipped_needs_api_key",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:news",
+      "api_key_required:FMP_API_KEY"
+    ],
+    "tried_datasets": []
+  },
+  {
+    "source": "sec_edgar",
+    "symbol": "AAPL",
+    "dataset": "fundamentals",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "unsupported_dataset:kline"
+    ],
+    "tried_datasets": [
+      "fundamentals",
+      "news",
+      "corporate_actions",
+      "kline"
+    ]
+  },
+  {
+    "source": "sec_edgar",
+    "symbol": "AAPL",
+    "dataset": "news",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "unsupported_dataset:kline"
+    ],
+    "tried_datasets": [
+      "news",
+      "fundamentals",
+      "corporate_actions",
+      "kline"
+    ]
+  },
+  {
+    "source": "sec_edgar",
+    "symbol": "AAPL",
+    "dataset": "corporate_actions",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "unsupported_dataset:kline"
+    ],
+    "tried_datasets": [
+      "corporate_actions",
+      "fundamentals",
+      "news",
+      "kline"
+    ]
+  },
+  {
+    "source": "defillama",
+    "symbol": "BTCUSDT",
+    "dataset": "macro",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "unsupported_dataset:kline"
+    ],
+    "tried_datasets": [
+      "macro",
+      "fundamentals",
+      "tick",
+      "kline"
+    ]
+  },
+  {
+    "source": "defillama",
+    "symbol": "BTCUSDT",
+    "dataset": "fundamentals",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:kline",
+      "unsupported_dataset:kline"
+    ],
+    "tried_datasets": [
+      "fundamentals",
+      "macro",
+      "tick",
+      "kline"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_nav",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_allocation",
+      "unsupported_dataset:fund_allocation"
+    ],
+    "tried_datasets": [
+      "fund_nav",
+      "fund_profile",
+      "fund_return",
+      "fund_allocation"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_profile",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_allocation",
+      "unsupported_dataset:fund_allocation"
+    ],
+    "tried_datasets": [
+      "fund_profile",
+      "fund_nav",
+      "fund_return",
+      "fund_allocation"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_return",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_allocation",
+      "unsupported_dataset:fund_allocation"
+    ],
+    "tried_datasets": [
+      "fund_return",
+      "fund_nav",
+      "fund_profile",
+      "fund_allocation"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_allocation",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_return",
+      "unsupported_dataset:fund_return"
+    ],
+    "tried_datasets": [
+      "fund_allocation",
+      "fund_nav",
+      "fund_profile",
+      "fund_return"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_size",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_return",
+      "unsupported_dataset:fund_return"
+    ],
+    "tried_datasets": [
+      "fund_size",
+      "fund_nav",
+      "fund_profile",
+      "fund_return"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_fee",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_return",
+      "unsupported_dataset:fund_return"
+    ],
+    "tried_datasets": [
+      "fund_fee",
+      "fund_nav",
+      "fund_profile",
+      "fund_return"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_announcement",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_return",
+      "unsupported_dataset:fund_return"
+    ],
+    "tried_datasets": [
+      "fund_announcement",
+      "fund_nav",
+      "fund_profile",
+      "fund_return"
+    ]
+  },
+  {
+    "source": "tefas_public",
+    "symbol": "BTCUSDT",
+    "dataset": "fund_statistics",
+    "original_status": "unsupported_dataset",
+    "attempts": 4,
+    "new_status": "unsupported_dataset",
+    "rows": 0,
+    "issues": [
+      "missing_dataset:fund_return",
+      "unsupported_dataset:fund_return"
+    ],
+    "tried_datasets": [
+      "fund_statistics",
+      "fund_nav",
+      "fund_profile",
+      "fund_return"
+    ]
+  }
+]
