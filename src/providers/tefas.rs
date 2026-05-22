@@ -4,9 +4,13 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::process::Command;
 use chrono::{NaiveDate, Utc, TimeZone};
-use tefas::{AppConfig, TefasClient, QueryBatchRequest};
+use tefas::{AppConfig, TefasClient, QueryBatchRequest, HttpBackend, DEFAULT_USER_AGENT};
 use tefas::QueryOperationName;
+use once_cell::sync::Lazy;
 use tokio::runtime::Runtime;
+
+// Shared runtime to avoid creating a new Runtime per call which is expensive
+static SHARED_RT: Lazy<Runtime> = Lazy::new(|| Runtime::new().expect("failed to create tokio runtime"));
 
 pub struct TefasAdapter {
     client: reqwest::blocking::Client,
@@ -59,6 +63,18 @@ impl RawSourceAdapter for TefasAdapter {
 
         let tefas_debug = std::env::var("TEFAS_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
 
+            // Helper to persist parity artifacts when debugging is enabled
+            let write_parity = |symbol: &str, kind: &str, val: &Value| {
+                if tefas_debug {
+                    let dir = format!("artifacts/tefas_parity/{}", symbol);
+                    let _ = std::fs::create_dir_all(&dir);
+                    let fname = format!("{}/{}.json", dir, kind);
+                    if let Ok(body) = serde_json::to_string_pretty(val) {
+                        let _ = std::fs::write(&fname, body);
+                    }
+                }
+            };
+
         for ds in datasets {
             let canonical = crate::capabilities::canonical_dataset_name(ds);
             match canonical {
@@ -73,12 +89,16 @@ impl RawSourceAdapter for TefasAdapter {
                             if !env_base.trim().is_empty() { cfg.base_url = env_base; }
                         }
 
-                        let rt = Runtime::new().map_err(|e| ProviderError::Other(format!("failed to create tokio runtime: {}", e)))?;
+                        // Explicitly prefer the CLI-like defaults for parity
+                        cfg.auth.user_agent = DEFAULT_USER_AGENT.to_string();
+                        cfg.backend = HttpBackend::Wreq;
+
+                        let rt = &*SHARED_RT;
                         let client = rt.block_on(async { TefasClient::new(cfg).map_err(|e| ProviderError::Other(format!("tefas client init: {}", e))) })?;
 
                         // Attempt preflight to warm up session/cookies similar to CLI
                         if let Err(e) = rt.block_on(async { client.preflight().await }) {
-                            // capture preflight error but continue to try queries; include message
+                            // record the preflight error for diagnostics
                             return Err(ProviderError::Other(format!("tefas preflight failed: {}", e)));
                         }
 
@@ -90,6 +110,10 @@ impl RawSourceAdapter for TefasAdapter {
 
                     match lib_res() {
                         Ok(lib_json) => {
+                            // Persist raw library JSON for forensic parity (even on success)
+                            out.insert(format!("{}_tefas_lib_raw", canonical), lib_json.clone());
+                            write_parity(symbol, "lib_raw", &lib_json);
+                            // Only accept library results when the expected `resultList` exists.
                             if let Some(arr) = lib_json
                                 .get("fonFiyatBilgiGetir")
                                 .and_then(|o| o.get("resultList"))
@@ -120,14 +144,17 @@ impl RawSourceAdapter for TefasAdapter {
                                 out.insert(canonical.to_string(), Value::Array(out_arr));
                                 continue;
                             } else {
-                                out.insert(canonical.to_string(), lib_json);
-                                continue;
+                                    // Record raw library response for diagnostics and fall through to CLI/HTTP fallbacks
+                                    out.insert(format!("{}_tefas_lib_raw", canonical), lib_json.clone());
+                                    write_parity(symbol, "lib_raw", &lib_json);
                             }
                         }
                         Err(e) => {
                             if tefas_debug {
                                 eprintln!("tefas library error for {}: {}", canonical, e);
                             }
+                            // record the error in the output map for forensic comparison
+                            out.insert(format!("{}_tefas_lib_error", canonical), Value::String(format!("{}", e)));
                             // fall through to CLI/HTTP fallbacks
                         }
                     }
@@ -163,6 +190,9 @@ impl RawSourceAdapter for TefasAdapter {
                             let arg_slices: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
                             match try_run_tefas_cli(cmd, &arg_slices) {
                                 Ok(json_v) => {
+                                    // also save a raw copy of CLI output for diagnostics
+                                    out.insert(format!("{}_tefas_cli_raw", canonical), json_v.clone());
+                                    write_parity(symbol, "cli_raw", &json_v);
                                     out.insert(canonical.to_string(), json_v);
                                     inserted = true;
                                     break;
@@ -176,12 +206,24 @@ impl RawSourceAdapter for TefasAdapter {
                         continue;
                     }
 
-                    // Fallback: try the HTTP endpoint as a last resort
+                    // Fallback: try the HTTP endpoint as a last resort and capture traces when enabled
                     let url = format!("{}/api/values?symbol={}", base, symbol);
                     if let Ok(resp) = self.client.get(&url).send() {
-                        if let Ok(json_v) = resp.json::<Value>() {
-                            out.insert(canonical.to_string(), json_v);
-                            continue;
+                        let status_u16 = resp.status().as_u16();
+                        let headers_clone = resp.headers().clone();
+                        if let Ok(text_body) = resp.text() {
+                            if tefas_debug {
+                                let dir = format!("artifacts/tefas_traces/{}", symbol);
+                                let _ = std::fs::create_dir_all(&dir);
+                                let fname = format!("{}/{}_http_{}.log", dir, canonical, Utc::now().timestamp_millis());
+                                let content = format!("URL: {}\nStatus: {}\n\nHEADERS:\n{:?}\n\nBODY:\n{}\n", url, status_u16, headers_clone, text_body);
+                                let _ = std::fs::write(&fname, &content);
+                                out.insert(format!("{}_tefas_http_trace", canonical), Value::String(fname));
+                            }
+                            if let Ok(json_v) = serde_json::from_str::<Value>(&text_body) {
+                                out.insert(canonical.to_string(), json_v);
+                                continue;
+                            }
                         }
                     }
 
@@ -221,6 +263,8 @@ impl RawSourceAdapter for TefasAdapter {
                     let mut used = false;
                     for cmd in &possible_cmds {
                         if let Ok(json_v) = try_run_tefas_cli(cmd, &arg_slices) {
+                            out.insert(format!("{}_tefas_cli_raw", canonical), json_v.clone());
+                            write_parity(symbol, "cli_raw", &json_v);
                             if let Some(arr) = json_v
                                 .get("fonFiyatBilgiGetir")
                                 .and_then(|o| o.get("resultList"))
@@ -264,37 +308,49 @@ impl RawSourceAdapter for TefasAdapter {
                     // HTTP fallback
                     let url = format!("{}/api/values?symbol={}", base, symbol);
                     if let Ok(resp) = self.client.get(&url).send() {
-                        if let Ok(json_v) = resp.json::<Value>() {
-                            if let Some(arr) = json_v
-                                .get("fonFiyatBilgiGetir")
-                                .and_then(|o| o.get("resultList"))
-                                .and_then(|r| r.as_array())
-                            {
-                                let mut out_arr = Vec::new();
-                                for item in arr {
-                                    if let Some(obj) = item.as_object() {
-                                        let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                                        let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
-                                            .ok()
-                                            .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-                                            .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
-                                            .unwrap_or(0_i64);
-                                        let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
-                                        let mut rec = serde_json::Map::new();
-                                        rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
-                                        rec.insert("open".to_string(), price.clone());
-                                        rec.insert("high".to_string(), price.clone());
-                                        rec.insert("low".to_string(), price.clone());
-                                        rec.insert("close".to_string(), price.clone());
-                                        rec.insert("volume".to_string(), Value::Null);
-                                        out_arr.push(Value::Object(rec));
+                        let status_u16 = resp.status().as_u16();
+                        let headers_clone = resp.headers().clone();
+                        if let Ok(text_body) = resp.text() {
+                            if tefas_debug {
+                                let dir = format!("artifacts/tefas_traces/{}", symbol);
+                                let _ = std::fs::create_dir_all(&dir);
+                                let fname = format!("{}/{}_http_{}.log", dir, canonical, Utc::now().timestamp_millis());
+                                let content = format!("URL: {}\nStatus: {}\n\nHEADERS:\n{:?}\n\nBODY:\n{}\n", url, status_u16, headers_clone, text_body);
+                                let _ = std::fs::write(&fname, &content);
+                                out.insert(format!("{}_tefas_http_trace", canonical), Value::String(fname));
+                            }
+                            if let Ok(json_v) = serde_json::from_str::<Value>(&text_body) {
+                                if let Some(arr) = json_v
+                                    .get("fonFiyatBilgiGetir")
+                                    .and_then(|o| o.get("resultList"))
+                                    .and_then(|r| r.as_array())
+                                {
+                                    let mut out_arr = Vec::new();
+                                    for item in arr {
+                                        if let Some(obj) = item.as_object() {
+                                            let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
+                                            let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                                                .ok()
+                                                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                                                .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                                                .unwrap_or(0_i64);
+                                            let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                                            let mut rec = serde_json::Map::new();
+                                            rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
+                                            rec.insert("open".to_string(), price.clone());
+                                            rec.insert("high".to_string(), price.clone());
+                                            rec.insert("low".to_string(), price.clone());
+                                            rec.insert("close".to_string(), price.clone());
+                                            rec.insert("volume".to_string(), Value::Null);
+                                            out_arr.push(Value::Object(rec));
+                                        }
                                     }
+                                    out.insert(canonical.to_string(), Value::Array(out_arr));
+                                    continue;
                                 }
-                                out.insert(canonical.to_string(), Value::Array(out_arr));
+                                out.insert(canonical.to_string(), json_v);
                                 continue;
                             }
-                            out.insert(canonical.to_string(), json_v);
-                            continue;
                         }
                     }
 
@@ -312,7 +368,11 @@ impl RawSourceAdapter for TefasAdapter {
                             if !env_base.trim().is_empty() { cfg.base_url = env_base; }
                         }
 
-                        let rt = Runtime::new().map_err(|e| ProviderError::Other(format!("failed to create tokio runtime: {}", e)))?;
+                        // Enforce CLI-like network settings for parity
+                        cfg.auth.user_agent = DEFAULT_USER_AGENT.to_string();
+                        cfg.backend = HttpBackend::Wreq;
+
+                        let rt = &*SHARED_RT;
                         let client = rt.block_on(async { TefasClient::new(cfg).map_err(|e| ProviderError::Other(format!("tefas client init: {}", e))) })?;
 
                         // Attempt preflight to warm up session/cookies similar to CLI
@@ -328,6 +388,9 @@ impl RawSourceAdapter for TefasAdapter {
 
                     match lib_res() {
                         Ok(lib_json) => {
+                            // Persist raw library JSON for forensic parity (even on success)
+                            out.insert(format!("{}_tefas_lib_raw", canonical), lib_json.clone());
+                            write_parity(symbol, "lib_raw", &lib_json);
                             if let Some(arr) = lib_json
                                 .get("fonFiyatBilgiGetir")
                                 .and_then(|o| o.get("resultList"))
@@ -351,7 +414,9 @@ impl RawSourceAdapter for TefasAdapter {
                                     }
                                 }
                             }
-                            // if not matched, fall through to CLI/HTTP
+                            // record raw library response and fall through to CLI/HTTP
+                            out.insert(format!("{}_tefas_lib_raw", canonical), lib_json.clone());
+                            write_parity(symbol, "lib_raw", &lib_json);
                         }
                         Err(e) => {
                             if tefas_debug {
@@ -388,6 +453,8 @@ impl RawSourceAdapter for TefasAdapter {
                     let mut used = false;
                     for cmd in &possible_cmds {
                         if let Ok(json_v) = try_run_tefas_cli(cmd, &arg_slices) {
+                            out.insert(format!("{}_tefas_cli_raw", canonical), json_v.clone());
+                            write_parity(symbol, "cli_raw", &json_v);
                             if let Some(arr) = json_v
                                 .get("fonFiyatBilgiGetir")
                                 .and_then(|o| o.get("resultList"))
@@ -422,32 +489,44 @@ impl RawSourceAdapter for TefasAdapter {
                     // HTTP fallback
                     let url = format!("{}/api/values?symbol={}", base, symbol);
                     if let Ok(resp) = self.client.get(&url).send() {
-                        if let Ok(json_v) = resp.json::<Value>() {
-                            if let Some(arr) = json_v
-                                .get("fonFiyatBilgiGetir")
-                                .and_then(|o| o.get("resultList"))
-                                .and_then(|r| r.as_array())
-                            {
-                                if let Some(latest) = arr.last() {
-                                    if let Some(obj) = latest.as_object() {
-                                        let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                                        let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
-                                            .ok()
-                                            .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-                                            .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
-                                            .unwrap_or(0_i64);
-                                        let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
-                                        let mut rec = serde_json::Map::new();
-                                        rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
-                                        rec.insert("last".to_string(), price.clone());
-                                        rec.insert("price".to_string(), price);
-                                        out.insert(canonical.to_string(), Value::Array(vec![Value::Object(rec)]));
-                                        continue;
+                        let status_u16 = resp.status().as_u16();
+                        let headers_clone = resp.headers().clone();
+                        if let Ok(text_body) = resp.text() {
+                            if tefas_debug {
+                                let dir = format!("artifacts/tefas_traces/{}", symbol);
+                                let _ = std::fs::create_dir_all(&dir);
+                                let fname = format!("{}/{}_http_{}.log", dir, canonical, Utc::now().timestamp_millis());
+                                let content = format!("URL: {}\nStatus: {}\n\nHEADERS:\n{:?}\n\nBODY:\n{}\n", url, status_u16, headers_clone, text_body);
+                                let _ = std::fs::write(&fname, &content);
+                                out.insert(format!("{}_tefas_http_trace", canonical), Value::String(fname));
+                            }
+                            if let Ok(json_v) = serde_json::from_str::<Value>(&text_body) {
+                                if let Some(arr) = json_v
+                                    .get("fonFiyatBilgiGetir")
+                                    .and_then(|o| o.get("resultList"))
+                                    .and_then(|r| r.as_array())
+                                {
+                                    if let Some(latest) = arr.last() {
+                                        if let Some(obj) = latest.as_object() {
+                                            let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
+                                            let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                                                .ok()
+                                                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                                                .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                                                .unwrap_or(0_i64);
+                                            let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                                            let mut rec = serde_json::Map::new();
+                                            rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
+                                            rec.insert("last".to_string(), price.clone());
+                                            rec.insert("price".to_string(), price);
+                                            out.insert(canonical.to_string(), Value::Array(vec![Value::Object(rec)]));
+                                            continue;
+                                        }
                                     }
                                 }
+                                out.insert(canonical.to_string(), json_v);
+                                continue;
                             }
-                            out.insert(canonical.to_string(), json_v);
-                            continue;
                         }
                     }
 

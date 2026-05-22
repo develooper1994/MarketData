@@ -386,6 +386,10 @@ fn execute_command(
         Some("query-dataset-matrix") => query_dataset_matrix()?,
         Some("recommend-sources") => recommend_sources(command_args)?,
         Some("live-fetch") => live_fetch_command(command_args)?,
+        Some("consume-streams") => consume_streams_command(command_args)?,
+        Some("stream-start") => stream_start_command(command_args)?,
+        Some("stream-stop") => stream_stop_command(command_args)?,
+        Some("smoke") => smoke_command(command_args)?,
         Some("supported-use-cases") => {
             println!(
                 "{}",
@@ -549,6 +553,7 @@ fn ingest_option_args(
             ("limit", "--limit"),
             ("record_root", "--record-root"),
             ("manifest_root", "--manifest-root"),
+            ("duckdb", "--duckdb"),
         ],
         &[("store", "--store")],
     )?;
@@ -630,6 +635,10 @@ fn canonical_command(command: Option<&str>) -> Option<&'static str> {
         Some("query-dataset-matrix") | Some("qdm") => Some("query-dataset-matrix"),
         Some("recommend-sources") | Some("rs") => Some("recommend-sources"),
         Some("live-fetch") | Some("lf") => Some("live-fetch"),
+        Some("consume-streams") | Some("cs") => Some("consume-streams"),
+        Some("stream-start") | Some("stream_start") | Some("ss") => Some("stream-start"),
+        Some("stream-stop") | Some("stream_stop") => Some("stream-stop"),
+        Some("smoke") | Some("sm") => Some("smoke"),
         Some("supported-use-cases") | Some("suc") => Some("supported-use-cases"),
         Some("supported_use_cases") => Some("supported-use-cases"),
         Some("ingest") | Some("ing") => Some("ingest"),
@@ -662,8 +671,12 @@ COMMANDS
   query-dataset-matrix (qdm)     Machine-readable dataset → source coverage matrix
   supported-use-cases (suc)      List built-in recommendation flows
   recommend-sources (rs)         Recommend sources by use-case
-    live-fetch (lf)                Real online fetch with normal command flags (no stdin JSON)
-  ingest (ing)                   Normalize + quality-check + storage + provenance
+        live-fetch (lf)                Real online fetch with normal command flags (no stdin JSON)
+    consume-streams (cs)           Consume file-backed streams from artifacts/streams and ingest
+    stream-start (ss)              Start a background streaming adapter for a symbol
+    stream-stop                     Stop a background streaming adapter for a symbol
+    smoke (sm)                     Run a live smoke-check across representative sources
+    ingest (ing)                   Normalize + quality-check + storage + provenance
 
 COMMON FLOWS
   1) Verify bridge compatibility
@@ -782,6 +795,8 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
     }
     payload.insert("source_issues".to_string(), json!(result.source_issues));
     payload.insert("dataset_coverage".to_string(), json!(result.dataset_coverage));
+    // Include raw provider payloads for diagnostics when performing live-fetch
+    payload.insert("raw_datasets".to_string(), json!(result.raw_datasets));
     // Merge selection metadata into the live-fetch payload when present
     for key in ["selection_mode", "attempted_sources", "fallback_used", "fallback_reasons", "warnings"] {
         if let Some(val) = meta.get(key) {
@@ -1001,21 +1016,36 @@ struct IngestOptions {
     store: bool,
     record_root: Option<String>,
     manifest_root: Option<String>,
+    duckdb_path: Option<String>,
 }
 
 fn ingest(
     options: IngestOptions,
     raw_input_override: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let storage = if let Some(record_root) = &options.record_root {
+    // Determine storage backend. If a duckdb import is requested and no explicit record_root
+    // was given, persist records to a timestamped local store so they can be imported.
+    let mut record_root_used: Option<String> = options.record_root.clone();
+    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
+    } else if options.duckdb_path.is_some() {
+        let store_path = format!("artifacts/store/{}", Utc::now().timestamp_millis());
+        std::fs::create_dir_all(&store_path)?;
+        record_root_used = Some(store_path.clone());
+        Box::new(LocalArtifactStorage::new(&store_path)) as Box<dyn market_data::StorageBackend>
     } else {
         Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>
     };
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
     let mut registry = SourceAdapterRegistry::default();
     market_data::providers::register_live_providers(&mut registry);
-    let mut hub = DataHub::with_components(storage, provenance, registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    // Register the tradingview streaming POC adapter (writes synthetic ticks to artifacts/streams)
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
     let raw_input = if let Some(raw_input_override) = raw_input_override {
         raw_input_override
     } else {
@@ -1051,6 +1081,285 @@ fn ingest(
     };
 
     print_json(&serde_json::to_value(result)?, false)?;
+    // If duckdb import was requested, write a helper and attempt to import via python3
+    if let Some(duckdb_path) = options.duckdb_path.as_deref() {
+        if let Some(record_root_dir) = record_root_used.as_deref() {
+            std::fs::create_dir_all("artifacts")?;
+            let script_path = "artifacts/duckdb_import.py";
+            let script = r###"#!/usr/bin/env python3
+        import sys, os
+        def main():
+            if len(sys.argv) < 3:
+                print("usage: duckdb_import.py <duckdb_db> <records_dir>", file=sys.stderr)
+                sys.exit(2)
+            db_path = sys.argv[1]
+            records_dir = sys.argv[2]
+            try:
+                import duckdb
+            except Exception:
+                print("duckdb_module_missing", file=sys.stderr)
+                sys.exit(3)
+            # accept both .json and .jsonl artifact files
+            pattern = os.path.join(records_dir, "*.json*")
+            try:
+                con = duckdb.connect(db_path)
+                con.execute(f"CREATE TABLE IF NOT EXISTS imported AS SELECT * FROM read_json_auto('{pattern}')")
+                print("import_ok")
+            except Exception as e:
+                print(f"import_error:{e}", file=sys.stderr)
+                sys.exit(1)
+        if __name__ == '__main__':
+            main()
+        "###;
+            std::fs::write(script_path, script)?;
+
+            // Only attempt the import if python3 and the duckdb module are available.
+            match Command::new("python3").arg("-c").arg("import duckdb").status() {
+                Ok(status) if status.success() => {
+                    match Command::new("python3").arg(script_path).arg(duckdb_path).arg(record_root_dir).output() {
+                        Ok(out) => {
+                            if out.status.success() {
+                                eprintln!("duckdb import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                            } else {
+                                eprintln!("duckdb import failed: {}", String::from_utf8_lossy(&out.stderr));
+                                eprintln!("helper written to artifacts/duckdb_import.py");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("failed to spawn python3 for duckdb import: {}", e);
+                            eprintln!("helper written to artifacts/duckdb_import.py");
+                        }
+                    }
+                }
+                _ => {
+                    // Python duckdb module not available; try system duckdb CLI as a fallback
+                    let pattern = format!("{}/{}", record_root_dir, "*.json*");
+                    let sql = format!("CREATE TABLE IF NOT EXISTS imported AS SELECT * FROM read_json_auto('{}')", pattern);
+                    match Command::new("duckdb").arg(duckdb_path).arg("-c").arg(sql).output() {
+                        Ok(out) => {
+                            if out.status.success() {
+                                eprintln!("duckdb CLI import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                            } else {
+                                eprintln!("duckdb CLI import failed: {}", String::from_utf8_lossy(&out.stderr));
+                                eprintln!("python3 duckdb module not available; helper written to artifacts/duckdb_import.py");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("duckdb CLI not available or failed to spawn: {}; helper written to artifacts/duckdb_import.py", e);
+                        }
+                    }
+                }
+            }
+        } else {
+            eprintln!("duckdb path specified but no local records present to import");
+        }
+    }
+
+    Ok(())
+}
+
+fn consume_streams_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dir = "artifacts/streams".to_string();
+    let mut store = true;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--dir" => {
+                i += 1;
+                dir = args.get(i).cloned().ok_or("--dir requires a value")?;
+            }
+            "--no-store" => {
+                store = false;
+            }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let storage = Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>;
+    let provenance = ManifestProvenanceTracker::new(None::<&str>);
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
+
+    let count = market_data::stream_consumer::consume_stream_files(&mut hub, &dir, store)?;
+    println!("processed {} stream files", count);
+    Ok(())
+}
+
+fn stream_start_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut source = "tradingview".to_string();
+    let mut symbol = "AAPL".to_string();
+    let mut datasets: Vec<String> = vec!["tick".to_string()];
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => { i += 1; source = args.get(i).cloned().ok_or("--source requires a value")?; }
+            "--symbol" => { i += 1; symbol = args.get(i).cloned().ok_or("--symbol requires a value")?; }
+            "--datasets" => { i += 1; let v = args.get(i).cloned().ok_or("--datasets requires a value")?; datasets = v.split(',').map(|s| s.trim().to_string()).collect(); }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let storage = Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>;
+    let provenance = ManifestProvenanceTracker::new(None::<&str>);
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
+
+    hub.start_stream(&source, &symbol, datasets)?;
+    println!("{{\"status\":\"started\",\"source\":\"{}\",\"symbol\":\"{}\"}}", source, symbol);
+    Ok(())
+}
+
+fn stream_stop_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut source = "tradingview".to_string();
+    let mut symbol = "AAPL".to_string();
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => { i += 1; source = args.get(i).cloned().ok_or("--source requires a value")?; }
+            "--symbol" => { i += 1; symbol = args.get(i).cloned().ok_or("--symbol requires a value")?; }
+            unknown => return Err(format!("unknown option: {unknown}").into()),
+        }
+        i += 1;
+    }
+
+    let storage = Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>;
+    let provenance = ManifestProvenanceTracker::new(None::<&str>);
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
+
+    hub.stop_stream(&source, &symbol)?;
+    println!("{{\"status\":\"stopped\",\"source\":\"{}\",\"symbol\":\"{}\"}}", source, symbol);
+    Ok(())
+}
+
+fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    // If `--all` is passed, iterate all live-capable sources (skip API-key-only sources)
+    let mut run_all = false;
+    for a in &args { if a == "--all" { run_all = true; } }
+
+    // Run a small set of live checks for representative sources (or all when requested).
+    // Fail if any check produces zero coverage or the streaming pipeline produces zero processed files.
+    let mut summary: Vec<serde_json::Value> = Vec::new();
+
+    // 1) TEFAS public check (AC5)
+    let opts = IngestOptions { source: "tefas_public".to_string(), symbol: "AC5".to_string(), datasets: vec!["tick".to_string(), "kline".to_string()], asset_type: "multi_asset".to_string(), timeframe: "1m".to_string(), limit: 200, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+    match run_ingest_with_live_fetch(opts, None) {
+        Ok((result, _meta)) => {
+            summary.push(json!({"source":"tefas_public","symbol":"AC5","dataset_coverage": result.dataset_coverage, "source_issues": result.source_issues}));
+        }
+        Err(e) => {
+            return Err(format!("tefas_public smoke check failed: {}", e).into());
+        }
+    }
+
+    // 2) Yahoo unofficial (AAPL)
+    let opts2 = IngestOptions { source: "yahoo_unofficial".to_string(), symbol: "AAPL".to_string(), datasets: vec!["kline".to_string(), "tick".to_string()], asset_type: "multi_asset".to_string(), timeframe: "1d".to_string(), limit: 100, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+    match run_ingest_with_live_fetch(opts2, None) {
+        Ok((result, _meta)) => {
+            summary.push(json!({"source":"yahoo_unofficial","symbol":"AAPL","dataset_coverage": result.dataset_coverage, "source_issues": result.source_issues}));
+        }
+        Err(e) => {
+            return Err(format!("yahoo_unofficial smoke check failed: {}", e).into());
+        }
+    }
+
+    // 3) TradingView streaming check: start adapter, wait briefly, consume stream files
+    let storage = Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>;
+    let provenance = ManifestProvenanceTracker::new(None::<&str>);
+    let mut registry = SourceAdapterRegistry::default();
+    market_data::providers::register_live_providers(&mut registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
+
+    hub.start_stream("tradingview", "AAPL", vec!["tick".to_string()])?;
+    // allow the synthetic streaming adapter to produce a few ticks
+    std::thread::sleep(std::time::Duration::from_secs(4));
+    let processed = market_data::stream_consumer::consume_stream_files(&mut hub, "artifacts/streams", false)?;
+    hub.stop_stream("tradingview", "AAPL")?;
+    summary.push(json!({"source":"tradingview","symbol":"AAPL","processed_files": processed}));
+
+    println!("{}", serde_json::to_string_pretty(&json!(summary))?);
+
+    // Verify results: ensure at least one data row or processed file was produced
+    let mut ok = true;
+    for item in &summary {
+        if let Some(obj) = item.as_object() {
+            if obj.contains_key("processed_files") {
+                if obj.get("processed_files").and_then(Value::as_u64).unwrap_or(0) == 0 {
+                    ok = false;
+                }
+            } else if let Some(dc) = obj.get("dataset_coverage") {
+                if dc.as_object().map(|m| m.values().all(|v| v.as_u64().unwrap_or(0) == 0)).unwrap_or(true) {
+                    ok = false;
+                }
+            }
+        }
+    }
+
+    if !ok {
+        return Err("smoke checks detected missing data; inspect artifacts for details".into());
+    }
+
+    // If requested, iterate other live-capable sources and run a lightweight fetch
+    if run_all {
+        let caps = capability_map();
+        for (source, cap) in caps {
+            if cap.requires_api_key {
+                // skip sources that require API keys unless env var exists
+                if let Some(env_name) = &cap.api_key_env {
+                    if std::env::var(env_name).unwrap_or_default().trim().is_empty() {
+                        summary.push(json!({"source": source, "skipped": "api_key_missing"}));
+                        continue;
+                    }
+                } else {
+                    summary.push(json!({"source": source, "skipped": "api_key_required"}));
+                    continue;
+                }
+            }
+
+            // pick first implemented dataset and a sample symbol
+            let dataset = cap.implemented_datasets.first().cloned().unwrap_or_else(|| "kline".to_string());
+            let symbol = discover_assets_live(&source, 1).first().cloned().unwrap_or_else(|| "BTCUSDT".to_string());
+            let opts = IngestOptions { source: source.clone(), symbol: symbol.clone(), datasets: vec![dataset.clone()], asset_type: "multi_asset".to_string(), timeframe: "1m".to_string(), limit: 50, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+            match run_ingest_with_live_fetch(opts, None) {
+                Ok((result, _meta)) => {
+                    summary.push(json!({"source": source, "symbol": symbol, "dataset": dataset, "dataset_coverage": result.dataset_coverage}));
+                }
+                Err(e) => {
+                    summary.push(json!({"source": source, "error": format!("{}", e)}));
+                }
+            }
+        }
+        println!("full_smoke_summary: {}", serde_json::to_string_pretty(&json!(summary))?);
+    }
+
     Ok(())
 }
 
@@ -1058,18 +1367,33 @@ fn run_ingest_with_live_fetch(
     options: IngestOptions,
     fetch_options: Option<&Value>,
 ) -> Result<(market_data::IngestResult, Map<String, Value>), Box<dyn std::error::Error>> {
-    let storage = if let Some(record_root) = &options.record_root {
+    // Determine storage backend and expose the record_root used in metadata.
+    let mut record_root_used: Option<String> = options.record_root.clone();
+    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
+    } else if options.duckdb_path.is_some() {
+        let store_path = format!("artifacts/store/{}", Utc::now().timestamp_millis());
+        std::fs::create_dir_all(&store_path)?;
+        record_root_used = Some(store_path.clone());
+        Box::new(LocalArtifactStorage::new(&store_path)) as Box<dyn market_data::StorageBackend>
     } else {
         Box::new(InMemoryStorage::default()) as Box<dyn market_data::StorageBackend>
     };
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
     let mut registry = SourceAdapterRegistry::default();
     market_data::providers::register_live_providers(&mut registry);
-    let mut hub = DataHub::with_components(storage, provenance, registry);
+    let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
+    streaming_registry.register(
+        "tradingview",
+        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+    );
+    let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
     let mut extra_issues: Vec<String> = Vec::new();
 
     let mut metadata: Map<String, Value> = Map::new();
+
+    // If duckdb_path is set, force persisting records to storage so they can be imported.
+    let effective_store: bool = options.store || options.duckdb_path.is_some();
 
     let raw_datasets = fetch_options
         .and_then(|value| value.get("raw_datasets"))
@@ -1160,7 +1484,7 @@ fn run_ingest_with_live_fetch(
                     options.datasets,
                     &options.timeframe,
                     options.limit,
-                    options.store,
+                    effective_store,
                 )?
             } else {
                 metadata.insert("selected_source".to_string(), json!(selected_source.clone()));
@@ -1170,7 +1494,7 @@ fn run_ingest_with_live_fetch(
                     &options.symbol,
                     options.datasets,
                     fetched_map,
-                    options.store,
+                    effective_store,
                     &options.asset_type,
                 )?
             }
@@ -1199,7 +1523,7 @@ fn run_ingest_with_live_fetch(
                     options.datasets,
                     &options.timeframe,
                     options.limit,
-                    options.store,
+                    effective_store,
                 )?
             } else {
                 hub.ingest_from_raw_with_asset_type(
@@ -1207,7 +1531,7 @@ fn run_ingest_with_live_fetch(
                     &options.symbol,
                     options.datasets,
                     fetched,
-                    options.store,
+                    effective_store,
                     &options.asset_type,
                 )?
             }
@@ -1218,11 +1542,67 @@ fn run_ingest_with_live_fetch(
             &options.symbol,
             options.datasets,
             raw_datasets,
-            options.store,
+            effective_store,
             &options.asset_type,
         )?
     };
 
+
+    // If duckdb import requested, and we have a persisted record_root (set above), write helper and attempt import
+    if let Some(duckdb_path) = options.duckdb_path.as_deref() {
+        if let Some(record_root_dir) = options.record_root.as_ref().or(record_root_used.as_ref()) {
+            std::fs::create_dir_all("artifacts")?;
+            let script_path = "artifacts/duckdb_import.py";
+            let script = r###"#!/usr/bin/env python3
+import sys, os
+def main():
+    if len(sys.argv) < 3:
+        print("usage: duckdb_import.py <duckdb_db> <records_dir>", file=sys.stderr)
+        sys.exit(2)
+    db_path = sys.argv[1]
+    records_dir = sys.argv[2]
+    try:
+        import duckdb
+    except Exception:
+        print("duckdb_module_missing", file=sys.stderr)
+        sys.exit(3)
+    # accept both .json and .jsonl artifact files
+    pattern = os.path.join(records_dir, "*.json*")
+    try:
+        con = duckdb.connect(db_path)
+        con.execute(f"CREATE TABLE IF NOT EXISTS imported AS SELECT * FROM read_json_auto('{pattern}')")
+        print("import_ok")
+    except Exception as e:
+        print(f"import_error:{e}", file=sys.stderr)
+        sys.exit(1)
+if __name__ == '__main__':
+    main()
+"###;
+            std::fs::write(script_path, script)?;
+
+            match Command::new("python3").arg("-c").arg("import duckdb").status() {
+                Ok(status) if status.success() => {
+                    match Command::new("python3").arg(script_path).arg(duckdb_path).arg(record_root_dir).output() {
+                        Ok(out) => {
+                            if out.status.success() {
+                                eprintln!("duckdb import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                            } else {
+                                eprintln!("duckdb import failed: {}", String::from_utf8_lossy(&out.stderr));
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("failed to spawn python3 for duckdb import: {}", e);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("python3 duckdb module not available; helper written to artifacts/duckdb_import.py");
+                }
+            }
+        } else {
+            eprintln!("duckdb path specified but no local records present to import");
+        }
+    }
     let source_for_issues = metadata
         .get("selected_source")
         .and_then(Value::as_str)
@@ -1235,6 +1615,8 @@ fn run_ingest_with_live_fetch(
             ("reason".to_string(), reason),
         ]));
     }
+    // Expose the record root used (if any) in the metadata for callers
+    metadata.insert("record_root".to_string(), json!(record_root_used));
     Ok((result, metadata))
 }
 
@@ -1272,6 +1654,7 @@ fn ingest_options_from_json_payload(
         store: payload_bool(payload, "store").unwrap_or(false),
         record_root: payload_string(payload, "record_root"),
         manifest_root: payload_string(payload, "manifest_root"),
+        duckdb_path: payload_string(payload, "duckdb").or_else(|| payload_string(payload, "duckdb_path")),
     })
 }
 
@@ -1295,6 +1678,7 @@ fn load_market_data_options_from_json_payload(
         store: false,
         record_root: None,
         manifest_root: None,
+        duckdb_path: None,
     })
 }
 
@@ -2673,6 +3057,9 @@ fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std:
             }
             "--record-root" => {
                 options.record_root = Some(next_value(&args, &mut index, flag)?.to_string());
+            }
+            "--duckdb" => {
+                options.duckdb_path = Some(next_value(&args, &mut index, flag)?.to_string());
             }
             "--manifest-root" => {
                 options.manifest_root = Some(next_value(&args, &mut index, flag)?.to_string());

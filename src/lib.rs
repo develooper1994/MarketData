@@ -3,6 +3,8 @@ pub mod contracts;
 pub mod etl;
 pub mod hub;
 pub mod providers;
+pub mod streaming;
+pub mod stream_consumer;
 pub mod normalize;
 pub mod provenance;
 pub mod quality;

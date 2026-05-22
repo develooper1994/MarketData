@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
+use crate::streaming::StreamingAdapterRegistry;
 
 pub trait RawSourceAdapter: Send + Sync {
     fn fetch_raw(
@@ -141,6 +142,7 @@ pub struct DataHub {
     storage: Box<dyn StorageBackend>,
     provenance: ManifestProvenanceTracker,
     adapters: SourceAdapterRegistry,
+    streaming: StreamingAdapterRegistry,
 }
 
 impl Default for DataHub {
@@ -150,6 +152,7 @@ impl Default for DataHub {
             storage: Box::<InMemoryStorage>::default(),
             provenance: ManifestProvenanceTracker::new(None::<&str>),
             adapters: SourceAdapterRegistry::default(),
+            streaming: StreamingAdapterRegistry::default(),
         }
     }
 }
@@ -159,13 +162,37 @@ impl DataHub {
         storage: Box<dyn StorageBackend>,
         provenance: ManifestProvenanceTracker,
         adapters: SourceAdapterRegistry,
+        streaming: StreamingAdapterRegistry,
     ) -> Self {
         Self {
             quality: CanonicalDataQuality,
             storage,
             provenance,
             adapters,
+            streaming,
         }
+    }
+
+    /// Start a background streaming session for a source/symbol.
+    pub fn start_stream(&mut self, source: &str, symbol: &str, datasets: Vec<String>) -> Result<(), HubError> {
+        let adapter = self
+            .streaming
+            .get(source)
+            .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
+        adapter
+            .start_stream(symbol, &datasets)
+            .map_err(|e| HubError::Provider(e))
+    }
+
+    /// Stop a background streaming session.
+    pub fn stop_stream(&mut self, source: &str, symbol: &str) -> Result<(), HubError> {
+        let adapter = self
+            .streaming
+            .get(source)
+            .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
+        adapter
+            .stop_stream(symbol)
+            .map_err(|e| HubError::Provider(e))
     }
 
     pub fn ingest(

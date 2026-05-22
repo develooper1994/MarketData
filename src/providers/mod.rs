@@ -4,6 +4,7 @@ pub mod btcturk;
 pub mod kap;
 pub mod fintables;
 pub mod tradingview;
+pub mod tradingview_ws;
 pub mod paratic;
 pub mod dovizcom;
 pub mod tefas;
@@ -22,10 +23,21 @@ pub fn register_live_providers(registry: &mut SourceAdapterRegistry) {
     registry.register("fintables", Arc::new(fintables::FintablesAdapter::default()));
     // New scaffolds (minimal implementations)
     registry.register("tradingview", Arc::new(tradingview::TradingViewAdapter::default()));
+    // Streaming adapter (POC)
+    // Note: `tradingview_ws` provides a streaming POC that emits synthetic ticks when no
+    // real websocket URL is configured via `TRADINGVIEW_WS_URL`.
     registry.register("paratic", Arc::new(paratic::ParaticAdapter::default()));
     registry.register("dovizcom", Arc::new(dovizcom::DovizComAdapter::default()));
-    let tefas_adapter = Arc::new(tefas::TefasAdapter::default());
-    registry.register("tefas", tefas_adapter.clone());
-    // capability map uses `tefas_public`
-    registry.register("tefas_public", tefas_adapter.clone());
+    // TEFAS is opt-in via the `ENABLE_TEFAS` env var to avoid accidental live calls.
+    if std::env::var("ENABLE_TEFAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+        let tefas_adapter = Arc::new(tefas::TefasAdapter::default());
+        registry.register("tefas", tefas_adapter.clone());
+        // capability map uses `tefas_public`
+        registry.register("tefas_public", tefas_adapter.clone());
+    } else {
+        // Helpful debug message when explicitly requested
+        if std::env::var("TEFAS_DEBUG").map(|v| v == "1").unwrap_or(false) {
+            eprintln!("TEFAS provider not registered (ENABLE_TEFAS not set)");
+        }
+    }
 }
