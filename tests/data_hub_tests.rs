@@ -39,6 +39,7 @@ fn ingest_from_raw_builds_records_and_provenance() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         SourceAdapterRegistry::default(),
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let result = hub
@@ -72,6 +73,7 @@ fn quality_detects_non_monotonic_kline_timestamps() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         SourceAdapterRegistry::default(),
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let result = hub
@@ -116,6 +118,7 @@ fn etl_fetches_via_registered_adapter() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let etl = Etl::new(hub)
@@ -159,6 +162,7 @@ fn ingest_from_raw_resolves_ohlcv_alias_to_kline() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         SourceAdapterRegistry::default(),
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let result = hub

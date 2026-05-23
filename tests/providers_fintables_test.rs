@@ -48,7 +48,7 @@ fn fintables_fetch_via_mock() {
     let mut registry = SourceAdapterRegistry::default();
     registry.register("fintables", Arc::new(TestFintablesAdapter::new(server.base_url())));
 
-    let hub = DataHub::with_components(Box::new(InMemoryStorage::default()), ManifestProvenanceTracker::new(None::<&str>), registry);
+    let hub = DataHub::with_components(Box::new(InMemoryStorage::default()), ManifestProvenanceTracker::new(None::<&str>), registry, market_data::streaming::StreamingAdapterRegistry::default());
     let etl = Etl::new(hub)
         .source("fintables")
         .select_assets(vec!["BTCUSDT".to_string()])

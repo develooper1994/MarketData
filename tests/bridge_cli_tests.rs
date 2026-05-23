@@ -1086,6 +1086,7 @@ fn prelude_exports_are_usable() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         SourceAdapterRegistry::default(),
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
     let result: IngestResult = hub
         .ingest_from_raw(

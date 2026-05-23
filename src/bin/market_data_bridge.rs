@@ -1044,9 +1044,20 @@ fn ingest(
     // invocations work without requiring the opt-in environment variable.
     if options.source == "tefas" || options.source == "tefas_public" {
         if registry.get("tefas_public").is_none() {
-            let tefas_adapter = std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
-            registry.register("tefas", tefas_adapter.clone());
-            registry.register("tefas_public", tefas_adapter);
+            #[cfg(feature = "tefas")]
+            {
+                let tefas_adapter = std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
+                registry.register("tefas", tefas_adapter.clone());
+                registry.register("tefas_public", tefas_adapter);
+            }
+
+            #[cfg(not(feature = "tefas"))]
+            {
+                eprintln!(
+                    "Requested TEFAS source ({}), but crate was compiled without the `tefas` feature. Rebuild with `--features tefas` to enable.",
+                    options.source
+                );
+            }
         }
     }
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();

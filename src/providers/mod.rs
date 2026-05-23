@@ -7,6 +7,7 @@ pub mod tradingview;
 pub mod tradingview_ws;
 pub mod paratic;
 pub mod dovizcom;
+#[cfg(feature = "tefas")]
 pub mod tefas;
 
 use crate::hub::SourceAdapterRegistry;
@@ -28,16 +29,23 @@ pub fn register_live_providers(registry: &mut SourceAdapterRegistry) {
     // real websocket URL is configured via `TRADINGVIEW_WS_URL`.
     registry.register("paratic", Arc::new(paratic::ParaticAdapter::default()));
     registry.register("dovizcom", Arc::new(dovizcom::DovizComAdapter::default()));
-    // TEFAS is opt-in via the `ENABLE_TEFAS` env var to avoid accidental live calls.
-    if std::env::var("ENABLE_TEFAS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
+    // TEFAS provider: compiled-in only when the `tefas` Cargo feature is enabled.
+    #[cfg(feature = "tefas")]
+    {
+        // At runtime the provider may still be gated behind env vars or auto-registered
+        // by the bridge when explicitly requested; here we register the adapter if
+        // the feature is present so consumers can opt-in at build time.
         let tefas_adapter = Arc::new(tefas::TefasAdapter::default());
         registry.register("tefas", tefas_adapter.clone());
         // capability map uses `tefas_public`
         registry.register("tefas_public", tefas_adapter.clone());
-    } else {
-        // Helpful debug message when explicitly requested
+    }
+
+    #[cfg(not(feature = "tefas"))]
+    {
+        // When the feature is not compiled in, print a terse debug note if debugging is enabled.
         if std::env::var("TEFAS_DEBUG").map(|v| v == "1").unwrap_or(false) {
-            eprintln!("TEFAS provider not registered (ENABLE_TEFAS not set)");
+            eprintln!("TEFAS provider not compiled in (feature \"tefas\" not enabled)");
         }
     }
 }

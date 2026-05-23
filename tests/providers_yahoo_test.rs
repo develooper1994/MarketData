@@ -118,6 +118,7 @@ fn yahoo_tick_fetch_via_mock() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let etl = Etl::new(hub)
@@ -158,6 +159,7 @@ fn yahoo_chart_fetch_via_mock() {
         Box::new(InMemoryStorage::default()),
         ManifestProvenanceTracker::new(None::<&str>),
         registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
     );
 
     let etl = Etl::new(hub)
