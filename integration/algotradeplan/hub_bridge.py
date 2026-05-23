@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path
@@ -117,12 +118,25 @@ def _run_bridge(
 ) -> Any:
     """Run a ``market_data_bridge`` subcommand and return parsed JSON."""
     binary = binary or os.getenv("MARKET_DATA_BIN")
+    # Allow injecting extra args for the bridge binary via env var.
+    # Example: MARKET_DATA_BIN_ARGS="--timeout 30 --verbose"
+    extra_args_raw = os.getenv("MARKET_DATA_BIN_ARGS", "")
+    extra_args: list[str] = shlex.split(extra_args_raw) if extra_args_raw else []
     if binary:
-        full_command = [binary, *command]
+        full_command = [binary, *extra_args, *command]
         cwd = None
     else:
         root = repo_root or Path(os.getenv("MARKET_DATA_REPO", ".")).resolve()
-        full_command = ["cargo", "run", "--quiet", "--bin", "market_data_bridge", "--", *command]
+        full_command = [
+            "cargo",
+            "run",
+            "--quiet",
+            "--bin",
+            "market_data_bridge",
+            "--",
+            *extra_args,
+            *command,
+        ]
         cwd = str(root)
 
     result = subprocess.run(
@@ -488,19 +502,28 @@ class DataHub:
             )
             if not isinstance(raw_datasets, dict):
                 raw_datasets = {}
+        # Only report that Python-side raw datasets are required when a
+        # Python raw_fetcher is present (i.e. we won't delegate fetching to
+        # the Rust bridge). If no Python fetcher exists, we'll let the
+        # bridge perform the fetch instead.
         should_report_raw_dataset_required = (
             fetchable
             and not raw_datasets
             and not raw_datasets_provided
             and not fetch_attempted
+            and self._raw_fetcher is not None
         )
         if should_report_raw_dataset_required:
             for dataset in fetchable:
                 source_issues_by_dataset[dataset] = "raw_dataset_required"
         else:
-            for dataset in fetchable:
-                if dataset not in raw_datasets:
-                    source_issues_by_dataset[dataset] = "missing_raw_dataset"
+            # If there is no Python raw_fetcher, we will delegate fetching to
+            # the Rust bridge; do not mark datasets as "missing_raw_dataset"
+            # in that case since the bridge will attempt to fetch them.
+            if not (fetchable and self._raw_fetcher is None):
+                for dataset in fetchable:
+                    if dataset not in raw_datasets:
+                        source_issues_by_dataset[dataset] = "missing_raw_dataset"
 
         # Record all non-fetchable datasets as source issues.
         issues: list[dict[str, str]] = [
@@ -509,7 +532,37 @@ class DataHub:
         ]
 
         if not raw_datasets:
-            # Nothing to send to Rust; short-circuit.
+            # If Python-side raw fetchers are not provided, delegate fetching to
+            # the Rust bridge in JSON mode so CLI and bridge-backed calls behave
+            # the same. This allows `DataHub.ingest(...)` to be used without
+            # a Python adapter while keeping parity with `market_data_bridge`.
+            if fetchable and self._raw_fetcher is None:
+                bridge_payload: dict[str, Any] = {
+                    "source": source,
+                    "symbol": symbol,
+                    "datasets": fetchable,
+                    "store": store,
+                }
+                # Propagate optional roots and duckdb path if provided.
+                bridge_payload["record_root"] = fetch_options.get(
+                    "record_root", str(self._artifact_root / "records")
+                )
+                bridge_payload["manifest_root"] = fetch_options.get(
+                    "manifest_root", str(self._artifact_root / "manifests")
+                )
+                if "duckdb" in fetch_options and fetch_options.get("duckdb"):
+                    bridge_payload["duckdb"] = fetch_options.get("duckdb")
+
+                response = _run_bridge(
+                    ["ingest", "--json"],
+                    input=json.dumps(bridge_payload),
+                    binary=self._binary,
+                    repo_root=self._repo_root,
+                )
+
+                return _parse_ingest_result(response, issues)
+
+            # Nothing to send to Rust; short-circuit when no fetcher available.
             return IngestResult(
                 source=source,
                 symbol=symbol,
@@ -547,6 +600,9 @@ class DataHub:
             )
             command += ["--record-root", str(record_root)]
             command += ["--manifest-root", str(manifest_root)]
+        # Forward optional duckdb path to the bridge so it can attempt import.
+        if "duckdb" in fetch_options and fetch_options.get("duckdb"):
+            command += ["--duckdb", str(fetch_options.get("duckdb"))]
 
         response = _run_bridge(
             command,

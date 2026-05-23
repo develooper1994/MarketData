@@ -65,6 +65,39 @@ export MARKET_DATA_BIN="$PWD/target/release/market_data_bridge"
 printf '{"command":"doctor"}' | "$MARKET_DATA_BIN"
 ```
 
+Optional environment variables
+------------------------------
+
+- `MARKET_DATA_BIN_ARGS`: pass extra args to the bridge binary when invoked
+    from Python or via `cargo run`. Example:
+
+```bash
+export MARKET_DATA_BIN_ARGS="--timeout 30 --verbose"
+printf '{"command":"doctor"}' | "$MARKET_DATA_BIN" --timeout 30
+```
+
+Activating the bridge in AlgoTradePlan
+-------------------------------------
+
+You can make the bridge the active importer in two ways:
+
+- Update imports to reference the compatibility shim:
+
+    ```py
+    from integration.algotradeplan.hub_bridge import DataHub
+    ```
+
+- Or copy `integration/algotradeplan/hub_bridge.py` into
+    `AlgoTradePlan/src/algotradeplan/data/hub.py` so existing imports continue to work.
+
+If importing directly from `integration.algotradeplan.hub_bridge`, ensure the
+`MarketData` repo (or its `integration/` folder) is on your `PYTHONPATH`, for
+example:
+
+```bash
+export PYTHONPATH="$PYTHONPATH:/path/to/MarketData"
+```
+
 ---
 
 ## Cutover instructions

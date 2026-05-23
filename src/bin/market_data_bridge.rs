@@ -1039,6 +1039,16 @@ fn ingest(
     let provenance = ManifestProvenanceTracker::new(options.manifest_root.as_deref());
     let mut registry = SourceAdapterRegistry::default();
     market_data::providers::register_live_providers(&mut registry);
+    // If the caller explicitly requested TEFAS as the source (e.g. --source tefas_public),
+    // register the TEFAS adapter even when ENABLE_TEFAS is not set. This lets explicit
+    // invocations work without requiring the opt-in environment variable.
+    if options.source == "tefas" || options.source == "tefas_public" {
+        if registry.get("tefas_public").is_none() {
+            let tefas_adapter = std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
+            registry.register("tefas", tefas_adapter.clone());
+            registry.register("tefas_public", tefas_adapter);
+        }
+    }
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     // Register the tradingview streaming POC adapter (writes synthetic ticks to artifacts/streams)
     streaming_registry.register(
