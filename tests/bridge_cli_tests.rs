@@ -325,7 +325,11 @@ fn live_fetch_single_command_returns_rows_without_stdin_json() {
     assert_eq!(payload["source"], "offline");
     assert_eq!(payload["symbol"], "BTCUSDT");
     assert_eq!(payload["dataset"], "tick");
-    assert!(payload["rows"].as_array().is_some_and(|rows| !rows.is_empty()));
+    assert!(
+        payload["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
 }
 
 #[test]
@@ -346,7 +350,11 @@ fn live_fetch_alias_lf_works() {
     assert!(output.status.success());
     let payload: Value = serde_json::from_slice(&output.stdout).expect("valid json output");
     assert_eq!(payload["dataset"], "kline");
-    assert!(payload["rows"].as_array().is_some_and(|rows| !rows.is_empty()));
+    assert!(
+        payload["rows"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+    );
     assert!(payload.get("rows_by_dataset").is_none());
 }
 
@@ -440,7 +448,7 @@ fn capabilities_command_returns_all_sources() {
     );
     let sources: Vec<&str> = arr.iter().filter_map(|c| c["source"].as_str()).collect();
     assert!(sources.contains(&"binance_futures"));
-        assert!(sources.contains(&"binance_spot"));
+    assert!(sources.contains(&"binance_spot"));
     assert!(sources.contains(&"tefas_public"));
     assert!(sources.contains(&"offline_fallback"));
     // Each entry must have required fields
@@ -468,7 +476,7 @@ fn sources_command_returns_sorted_name_list() {
         .filter_map(|v| v.as_str())
         .collect::<Vec<_>>();
     assert!(names.contains(&"binance_futures"));
-        assert!(names.contains(&"binance_spot"));
+    assert!(names.contains(&"binance_spot"));
     assert!(names.contains(&"yahoo_unofficial"));
 }
 
@@ -928,14 +936,34 @@ fn live_adapters_are_opt_in_and_do_not_crash() {
     }
 
     let cases = vec![
-        ("binance_futures", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
-        ("binance_spot", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook"]),
-        ("bybit_linear", "BTCUSDT", vec!["tick", "kline", "trade", "orderbook", "funding"]),
-        ("coinbase_spot", "BTC-USD", vec!["tick", "kline", "trade", "orderbook"]),
+        (
+            "binance_futures",
+            "BTCUSDT",
+            vec!["tick", "kline", "trade", "orderbook", "funding"],
+        ),
+        (
+            "binance_spot",
+            "BTCUSDT",
+            vec!["tick", "kline", "trade", "orderbook"],
+        ),
+        (
+            "bybit_linear",
+            "BTCUSDT",
+            vec!["tick", "kline", "trade", "orderbook", "funding"],
+        ),
+        (
+            "coinbase_spot",
+            "BTC-USD",
+            vec!["tick", "kline", "trade", "orderbook"],
+        ),
         ("stooq", "aapl.us", vec!["kline"]),
         ("yahoo_unofficial", "AAPL", vec!["tick", "kline"]),
         ("coingecko", "bitcoin", vec!["tick", "kline"]),
-        ("kraken_spot", "XBTUSD", vec!["tick", "kline", "trade", "orderbook"]),
+        (
+            "kraken_spot",
+            "XBTUSD",
+            vec!["tick", "kline", "trade", "orderbook"],
+        ),
         ("frankfurter_fx", "USD", vec!["macro"]),
         ("ecb", "USD", vec!["tick", "macro"]),
         ("world_bank", "NY.GDP.MKTP.CD", vec!["macro"]),
@@ -969,41 +997,39 @@ fn live_adapters_are_opt_in_and_do_not_crash() {
         .expect("request should serialize");
 
         let output = child.wait_with_output().expect("bridge should complete");
-        assert!(output.status.success(), "json ingest failed for source={source}");
+        assert!(
+            output.status.success(),
+            "json ingest failed for source={source}"
+        );
 
         let payload: Value =
             serde_json::from_slice(&output.stdout).expect("bridge output should be valid json");
         let coverage_total: i64 = payload["dataset_coverage"]
             .as_object()
-            .map(|rows| {
-                rows.values()
-                    .map(|v| v.as_i64().unwrap_or(0))
-                    .sum::<i64>()
-            })
+            .map(|rows| rows.values().map(|v| v.as_i64().unwrap_or(0)).sum::<i64>())
             .unwrap_or(0);
         let issues = payload["source_issues"]
             .as_array()
             .cloned()
             .unwrap_or_default();
         let has_allowed_issue = issues.iter().any(|issue| {
-            issue["reason"]
-                .as_str()
-                .is_some_and(|reason| {
-                    reason.starts_with("rate_limited:")
-                        || reason.starts_with("network_error:")
-                        || reason.starts_with("api_key_required:")
-                        || reason.starts_with("unsupported_dataset:")
-                })
+            issue["reason"].as_str().is_some_and(|reason| {
+                reason.starts_with("rate_limited:")
+                    || reason.starts_with("network_error:")
+                    || reason.starts_with("api_key_required:")
+                    || reason.starts_with("unsupported_dataset:")
+            })
         });
-        let has_allowed_quality_issue = payload["quality_report"]["issues"]
-            .as_array()
-            .is_some_and(|rows| {
-                rows.iter().any(|issue| {
-                    issue
-                        .as_str()
-                        .is_some_and(|reason| reason.contains("No records fetched for request"))
-                })
-            });
+        let has_allowed_quality_issue =
+            payload["quality_report"]["issues"]
+                .as_array()
+                .is_some_and(|rows| {
+                    rows.iter().any(|issue| {
+                        issue
+                            .as_str()
+                            .is_some_and(|reason| reason.contains("No records fetched for request"))
+                    })
+                });
 
         assert!(
             coverage_total > 0 || has_allowed_issue || has_allowed_quality_issue,
@@ -1097,6 +1123,8 @@ fn prelude_exports_are_usable() {
                 "kline".to_string(),
                 serde_json::json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
             )]),
+            false,
+            None,
             false,
         )
         .expect("prelude ingest should succeed");

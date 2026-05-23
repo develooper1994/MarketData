@@ -1,3 +1,9 @@
+use chrono::{DateTime, NaiveDate, TimeZone, Utc};
+use market_data::candidates::generate_candidates;
+use market_data::matcher::rank_matches;
+use market_data::source_health::SourceHealth;
+use market_data::source_registry::SourceRegistry;
+use market_data::source_selector::SourceSelector;
 use market_data::{
     DataHub, InMemoryStorage, LocalArtifactStorage, ManifestProvenanceTracker,
     SourceAdapterRegistry, all_capabilities, asset_status_for_source, available_datasets,
@@ -5,14 +11,14 @@ use market_data::{
     dataset_summary, recommend_sources_for_use_case, source_summary, sources_for,
     supported_use_cases,
 };
-use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use reqwest::blocking::Client;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::env;
 use std::io::{self, IsTerminal, Read};
-use std::time::Duration;
 use std::process::Command;
+use std::time::Duration;
+// candidates generator available via market_data::candidates if needed
 
 /// Increment this any time the bridge JSON contract changes incompatibly.
 const BRIDGE_CONTRACT_VERSION: &str = "1";
@@ -50,7 +56,15 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
     let caps = capability_map();
 
     match operation {
-        "sources" => print_json(&json!(all_capabilities().into_iter().map(|c| c.source).collect::<Vec<_>>()), false)?,
+        "sources" => print_json(
+            &json!(
+                all_capabilities()
+                    .into_iter()
+                    .map(|c| c.source)
+                    .collect::<Vec<_>>()
+            ),
+            false,
+        )?,
         "capabilities" => print_json(&serde_json::to_value(all_capabilities())?, false)?,
         "capability" => {
             let source = payload_string(&payload, "source").unwrap_or_default();
@@ -77,12 +91,18 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
         "dataset_status" => {
             let source = payload_string(&payload, "source").unwrap_or_default();
             let dataset = payload_string(&payload, "dataset").unwrap_or_default();
-            print_json(&json!(dataset_status_for_source(&caps, &source, &dataset)), false)?;
+            print_json(
+                &json!(dataset_status_for_source(&caps, &source, &dataset)),
+                false,
+            )?;
         }
         "asset_status" => {
             let source = payload_string(&payload, "source").unwrap_or_default();
             let asset_class = payload_string(&payload, "asset_class").unwrap_or_default();
-            print_json(&json!(asset_status_for_source(&caps, &source, &asset_class)), false)?;
+            print_json(
+                &json!(asset_status_for_source(&caps, &source, &asset_class)),
+                false,
+            )?;
         }
         "supports" => {
             let source = payload_string(&payload, "source").unwrap_or_default();
@@ -97,7 +117,12 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
             let dataset = payload_string(&payload, "dataset");
             let asset_class = payload_string(&payload, "asset_class");
             let require_live = payload_bool(&payload, "require_live").unwrap_or(false);
-            let result = sources_for(&caps, dataset.as_deref(), asset_class.as_deref(), require_live);
+            let result = sources_for(
+                &caps,
+                dataset.as_deref(),
+                asset_class.as_deref(),
+                require_live,
+            );
             print_json(&json!(result), false)?;
         }
         "available_datasets" => {
@@ -138,9 +163,7 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
                     let implemented = candidate
                         .iter()
                         .filter(|dataset| {
-                            cap.implemented_datasets
-                                .iter()
-                                .any(|item| item == *dataset)
+                            cap.implemented_datasets.iter().any(|item| item == *dataset)
                         })
                         .count();
                     rows.push(json!({
@@ -165,11 +188,13 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
             print_json(&value, false)?;
         }
         "best_sources_for" => {
-            let dataset = payload_string(&payload, "dataset").unwrap_or_else(|| "kline".to_string());
+            let dataset =
+                payload_string(&payload, "dataset").unwrap_or_else(|| "kline".to_string());
             let asset_class = payload_string(&payload, "asset_class");
             let prefer_live = payload_bool(&payload, "prefer_live").unwrap_or(true);
             let allow_api_key = payload_bool(&payload, "allow_api_key").unwrap_or(true);
-            let include_metadata_only = payload_bool(&payload, "include_metadata_only").unwrap_or(false);
+            let include_metadata_only =
+                payload_bool(&payload, "include_metadata_only").unwrap_or(false);
             let limit = payload
                 .get("limit")
                 .and_then(Value::as_u64)
@@ -186,28 +211,16 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
             print_json(&json!(rows), false)?;
         }
         "explain_dataset" => {
-            let dataset = payload_string(&payload, "dataset").unwrap_or_else(|| "kline".to_string());
+            let dataset =
+                payload_string(&payload, "dataset").unwrap_or_else(|| "kline".to_string());
             let mut summary = dataset_summary(&caps, &dataset);
-            let best_no_api = best_sources_for(
-                &caps,
-                &dataset,
-                None,
-                true,
-                false,
-                true,
-                Some(5),
-            );
-            let best_with_api = best_sources_for(
-                &caps,
-                &dataset,
-                None,
-                true,
-                true,
-                true,
-                Some(5),
-            );
+            let best_no_api = best_sources_for(&caps, &dataset, None, true, false, true, Some(5));
+            let best_with_api = best_sources_for(&caps, &dataset, None, true, true, true, Some(5));
             summary.insert("best_sources_no_api_key".to_string(), json!(best_no_api));
-            summary.insert("best_sources_with_api_key".to_string(), json!(best_with_api));
+            summary.insert(
+                "best_sources_with_api_key".to_string(),
+                json!(best_with_api),
+            );
             print_json(&json!(summary), false)?;
         }
         "recommend_sources" => {
@@ -218,7 +231,8 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
                 .get("limit")
                 .and_then(Value::as_u64)
                 .map(|value| value as usize);
-            let rows = recommend_sources_for_use_case(&caps, &use_case, allow_api_key, prefer_live, limit);
+            let rows =
+                recommend_sources_for_use_case(&caps, &use_case, allow_api_key, prefer_live, limit);
             print_json(&json!(rows), false)?;
         }
         "supported_use_cases" => {
@@ -260,7 +274,10 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
                 }
                 unique.into_iter().collect::<Vec<_>>()
             } else {
-                selected.iter().map(|item| (*item).to_string()).collect::<Vec<_>>()
+                selected
+                    .iter()
+                    .map(|item| (*item).to_string())
+                    .collect::<Vec<_>>()
             };
             let mut rows = Vec::new();
             for asset_class in asset_classes {
@@ -287,13 +304,16 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
             let (result, meta) = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
             let mut value = serde_json::to_value(result)?;
             if let Value::Object(ref mut obj) = value {
-                for (k, v) in meta { obj.insert(k, v); }
+                for (k, v) in meta {
+                    obj.insert(k, v);
+                }
             }
             print_json(&value, false)?;
         }
         "load_market_data" => {
             let options = load_market_data_options_from_json_payload(&payload)?;
-            let (result, _meta) = run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
+            let (result, _meta) =
+                run_ingest_with_live_fetch(options, payload.get("fetch_options"))?;
             let dataset = result
                 .requested_datasets
                 .first()
@@ -309,9 +329,14 @@ fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Err
                         .and_then(Value::as_str)
                         .is_some_and(|value| value == dataset)
                 })
-                .map(|record| serde_json::to_value(&record.payload).unwrap_or(Value::Object(Map::new())))
+                .map(|record| {
+                    serde_json::to_value(&record.payload).unwrap_or(Value::Object(Map::new()))
+                })
                 .collect();
-            print_json(&json!({ "rows": rows, "source_issues": result.source_issues }), false)?;
+            print_json(
+                &json!({ "rows": rows, "source_issues": result.source_issues }),
+                false,
+            )?;
         }
         "doctor" | "status" => {
             execute_command(Some("doctor"), Some("doctor"), Vec::new(), None)?;
@@ -335,7 +360,10 @@ fn read_json_payload() -> Result<Map<String, Value>, Box<dyn std::error::Error>>
 }
 
 fn payload_string(payload: &Map<String, Value>, key: &str) -> Option<String> {
-    payload.get(key).and_then(Value::as_str).map(ToString::to_string)
+    payload
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
 }
 
 fn payload_bool(payload: &Map<String, Value>, key: &str) -> Option<bool> {
@@ -549,13 +577,17 @@ fn ingest_option_args(
             ("source", "--source"),
             ("symbol", "--symbol"),
             ("asset_type", "--asset-type"),
+            ("asset_class", "--asset-class"),
             ("timeframe", "--timeframe"),
             ("limit", "--limit"),
             ("record_root", "--record-root"),
             ("manifest_root", "--manifest-root"),
             ("duckdb", "--duckdb"),
         ],
-        &[("store", "--store")],
+        &[
+            ("store", "--store"),
+            ("force_asset_class", "--force-asset-class"),
+        ],
     )?;
 
     if let Some(datasets) = request_option(options, "datasets") {
@@ -729,6 +761,19 @@ ONLINE DATA (REAL FETCH)
       network_error:<source>:<detail>
       unsupported_dataset:<dataset>
 
+ASSET-CLASS SELECTION
+    Use `--asset-class <name>` to give the selection system a hint about the
+    target asset class (e.g. `crypto_spot`, `equity`, `forex`, `macro`). By
+    default the system searches across all asset classes; providing an
+    asset-class acts as a preference to bias source selection toward providers
+    that advertise support for that class.
+
+    Add `--force-asset-class` to require that chosen sources explicitly
+    support the requested asset-class. When forced and no supporting sources
+    exist the bridge will return a result with an explanatory `source_issue` of
+    the form `unsupported_asset_class:<class>` and will not fallback to other
+    classes. See `docs/selection_explain.md` for full semantics and examples.
+
 MORE EXAMPLES
   market_data_bridge doctor
   market_data_bridge query-sources-for --dataset kline --asset-class crypto_spot
@@ -791,14 +836,26 @@ fn live_fetch_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error
     payload.insert("datasets".to_string(), json!(result.requested_datasets));
     payload.insert("rows".to_string(), rows);
     if rows_by_dataset.len() > 1 {
-        payload.insert("rows_by_dataset".to_string(), Value::Object(rows_by_dataset));
+        payload.insert(
+            "rows_by_dataset".to_string(),
+            Value::Object(rows_by_dataset),
+        );
     }
     payload.insert("source_issues".to_string(), json!(result.source_issues));
-    payload.insert("dataset_coverage".to_string(), json!(result.dataset_coverage));
+    payload.insert(
+        "dataset_coverage".to_string(),
+        json!(result.dataset_coverage),
+    );
     // Include raw provider payloads for diagnostics when performing live-fetch
     payload.insert("raw_datasets".to_string(), json!(result.raw_datasets));
     // Merge selection metadata into the live-fetch payload when present
-    for key in ["selection_mode", "attempted_sources", "fallback_used", "fallback_reasons", "warnings"] {
+    for key in [
+        "selection_mode",
+        "attempted_sources",
+        "fallback_used",
+        "fallback_reasons",
+        "warnings",
+    ] {
         if let Some(val) = meta.get(key) {
             payload.insert(key.to_string(), val.clone());
         }
@@ -1011,12 +1068,17 @@ struct IngestOptions {
     symbol: String,
     datasets: Vec<String>,
     asset_type: String,
+    asset_class: Option<String>,
     timeframe: String,
     limit: usize,
     store: bool,
+    force_asset_class: bool,
     record_root: Option<String>,
     manifest_root: Option<String>,
     duckdb_path: Option<String>,
+    explain_source: bool,
+    force_source: bool,
+    disable_source_mapping: bool,
 }
 
 fn ingest(
@@ -1026,7 +1088,8 @@ fn ingest(
     // Determine storage backend. If a duckdb import is requested and no explicit record_root
     // was given, persist records to a timestamped local store so they can be imported.
     let mut record_root_used: Option<String> = options.record_root.clone();
-    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used {
+    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used
+    {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
     } else if options.duckdb_path.is_some() {
         let store_path = format!("artifacts/store/{}", Utc::now().timestamp_millis());
@@ -1046,7 +1109,8 @@ fn ingest(
         if registry.get("tefas_public").is_none() {
             #[cfg(feature = "tefas")]
             {
-                let tefas_adapter = std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
+                let tefas_adapter =
+                    std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
                 registry.register("tefas", tefas_adapter.clone());
                 registry.register("tefas_public", tefas_adapter);
             }
@@ -1064,7 +1128,9 @@ fn ingest(
     // Register the tradingview streaming POC adapter (writes synthetic ticks to artifacts/streams)
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
     let raw_input = if let Some(raw_input_override) = raw_input_override {
@@ -1082,6 +1148,8 @@ fn ingest(
             &options.timeframe,
             options.limit,
             options.store,
+            options.asset_class.as_deref(),
+            options.force_asset_class,
         )?;
         if options.asset_type != "multi_asset" {
             for record in &mut result.records {
@@ -1098,6 +1166,8 @@ fn ingest(
             raw_datasets,
             options.store,
             &options.asset_type,
+            options.asset_class.as_deref(),
+            options.force_asset_class,
         )?
     };
 
@@ -1135,14 +1205,29 @@ fn ingest(
             std::fs::write(script_path, script)?;
 
             // Only attempt the import if python3 and the duckdb module are available.
-            match Command::new("python3").arg("-c").arg("import duckdb").status() {
+            match Command::new("python3")
+                .arg("-c")
+                .arg("import duckdb")
+                .status()
+            {
                 Ok(status) if status.success() => {
-                    match Command::new("python3").arg(script_path).arg(duckdb_path).arg(record_root_dir).output() {
+                    match Command::new("python3")
+                        .arg(script_path)
+                        .arg(duckdb_path)
+                        .arg(record_root_dir)
+                        .output()
+                    {
                         Ok(out) => {
                             if out.status.success() {
-                                eprintln!("duckdb import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                                eprintln!(
+                                    "duckdb import succeeded: {}",
+                                    String::from_utf8_lossy(&out.stdout)
+                                );
                             } else {
-                                eprintln!("duckdb import failed: {}", String::from_utf8_lossy(&out.stderr));
+                                eprintln!(
+                                    "duckdb import failed: {}",
+                                    String::from_utf8_lossy(&out.stderr)
+                                );
                                 eprintln!("helper written to artifacts/duckdb_import.py");
                             }
                         }
@@ -1155,18 +1240,37 @@ fn ingest(
                 _ => {
                     // Python duckdb module not available; try system duckdb CLI as a fallback
                     let pattern = format!("{}/{}", record_root_dir, "*.json*");
-                    let sql = format!("CREATE TABLE IF NOT EXISTS imported AS SELECT * FROM read_json_auto('{}')", pattern);
-                    match Command::new("duckdb").arg(duckdb_path).arg("-c").arg(sql).output() {
+                    let sql = format!(
+                        "CREATE TABLE IF NOT EXISTS imported AS SELECT * FROM read_json_auto('{}')",
+                        pattern
+                    );
+                    match Command::new("duckdb")
+                        .arg(duckdb_path)
+                        .arg("-c")
+                        .arg(sql)
+                        .output()
+                    {
                         Ok(out) => {
                             if out.status.success() {
-                                eprintln!("duckdb CLI import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                                eprintln!(
+                                    "duckdb CLI import succeeded: {}",
+                                    String::from_utf8_lossy(&out.stdout)
+                                );
                             } else {
-                                eprintln!("duckdb CLI import failed: {}", String::from_utf8_lossy(&out.stderr));
-                                eprintln!("python3 duckdb module not available; helper written to artifacts/duckdb_import.py");
+                                eprintln!(
+                                    "duckdb CLI import failed: {}",
+                                    String::from_utf8_lossy(&out.stderr)
+                                );
+                                eprintln!(
+                                    "python3 duckdb module not available; helper written to artifacts/duckdb_import.py"
+                                );
                             }
                         }
                         Err(e) => {
-                            eprintln!("duckdb CLI not available or failed to spawn: {}; helper written to artifacts/duckdb_import.py", e);
+                            eprintln!(
+                                "duckdb CLI not available or failed to spawn: {}; helper written to artifacts/duckdb_import.py",
+                                e
+                            );
                         }
                     }
                 }
@@ -1205,7 +1309,9 @@ fn consume_streams_command(args: Vec<String>) -> Result<(), Box<dyn std::error::
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
 
@@ -1222,9 +1328,19 @@ fn stream_start_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Err
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--source" => { i += 1; source = args.get(i).cloned().ok_or("--source requires a value")?; }
-            "--symbol" => { i += 1; symbol = args.get(i).cloned().ok_or("--symbol requires a value")?; }
-            "--datasets" => { i += 1; let v = args.get(i).cloned().ok_or("--datasets requires a value")?; datasets = v.split(',').map(|s| s.trim().to_string()).collect(); }
+            "--source" => {
+                i += 1;
+                source = args.get(i).cloned().ok_or("--source requires a value")?;
+            }
+            "--symbol" => {
+                i += 1;
+                symbol = args.get(i).cloned().ok_or("--symbol requires a value")?;
+            }
+            "--datasets" => {
+                i += 1;
+                let v = args.get(i).cloned().ok_or("--datasets requires a value")?;
+                datasets = v.split(',').map(|s| s.trim().to_string()).collect();
+            }
             unknown => return Err(format!("unknown option: {unknown}").into()),
         }
         i += 1;
@@ -1237,12 +1353,17 @@ fn stream_start_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Err
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
 
     hub.start_stream(&source, &symbol, datasets)?;
-    println!("{{\"status\":\"started\",\"source\":\"{}\",\"symbol\":\"{}\"}}", source, symbol);
+    println!(
+        "{{\"status\":\"started\",\"source\":\"{}\",\"symbol\":\"{}\"}}",
+        source, symbol
+    );
     Ok(())
 }
 
@@ -1253,8 +1374,14 @@ fn stream_stop_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Erro
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--source" => { i += 1; source = args.get(i).cloned().ok_or("--source requires a value")?; }
-            "--symbol" => { i += 1; symbol = args.get(i).cloned().ok_or("--symbol requires a value")?; }
+            "--source" => {
+                i += 1;
+                source = args.get(i).cloned().ok_or("--source requires a value")?;
+            }
+            "--symbol" => {
+                i += 1;
+                symbol = args.get(i).cloned().ok_or("--symbol requires a value")?;
+            }
             unknown => return Err(format!("unknown option: {unknown}").into()),
         }
         i += 1;
@@ -1267,26 +1394,51 @@ fn stream_stop_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Erro
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
 
     hub.stop_stream(&source, &symbol)?;
-    println!("{{\"status\":\"stopped\",\"source\":\"{}\",\"symbol\":\"{}\"}}", source, symbol);
+    println!(
+        "{{\"status\":\"stopped\",\"source\":\"{}\",\"symbol\":\"{}\"}}",
+        source, symbol
+    );
     Ok(())
 }
 
 fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     // If `--all` is passed, iterate all live-capable sources (skip API-key-only sources)
     let mut run_all = false;
-    for a in &args { if a == "--all" { run_all = true; } }
+    for a in &args {
+        if a == "--all" {
+            run_all = true;
+        }
+    }
 
     // Run a small set of live checks for representative sources (or all when requested).
     // Fail if any check produces zero coverage or the streaming pipeline produces zero processed files.
     let mut summary: Vec<serde_json::Value> = Vec::new();
 
     // 1) TEFAS public check (AC5)
-    let opts = IngestOptions { source: "tefas_public".to_string(), symbol: "AC5".to_string(), datasets: vec!["tick".to_string(), "kline".to_string()], asset_type: "multi_asset".to_string(), timeframe: "1m".to_string(), limit: 200, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+    let opts = IngestOptions {
+        source: "tefas_public".to_string(),
+        symbol: "AC5".to_string(),
+        datasets: vec!["tick".to_string(), "kline".to_string()],
+        asset_type: "multi_asset".to_string(),
+        asset_class: None,
+        timeframe: "1m".to_string(),
+        limit: 200,
+        store: false,
+        force_asset_class: false,
+        record_root: None,
+        manifest_root: None,
+        duckdb_path: None,
+        explain_source: false,
+        force_source: false,
+        disable_source_mapping: false,
+    };
     match run_ingest_with_live_fetch(opts, None) {
         Ok((result, _meta)) => {
             summary.push(json!({"source":"tefas_public","symbol":"AC5","dataset_coverage": result.dataset_coverage, "source_issues": result.source_issues}));
@@ -1297,7 +1449,23 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 2) Yahoo unofficial (AAPL)
-    let opts2 = IngestOptions { source: "yahoo_unofficial".to_string(), symbol: "AAPL".to_string(), datasets: vec!["kline".to_string(), "tick".to_string()], asset_type: "multi_asset".to_string(), timeframe: "1d".to_string(), limit: 100, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+    let opts2 = IngestOptions {
+        source: "yahoo_unofficial".to_string(),
+        symbol: "AAPL".to_string(),
+        datasets: vec!["kline".to_string(), "tick".to_string()],
+        asset_type: "multi_asset".to_string(),
+        asset_class: None,
+        timeframe: "1d".to_string(),
+        limit: 100,
+        store: false,
+        force_asset_class: false,
+        record_root: None,
+        manifest_root: None,
+        duckdb_path: None,
+        explain_source: false,
+        force_source: false,
+        disable_source_mapping: false,
+    };
     match run_ingest_with_live_fetch(opts2, None) {
         Ok((result, _meta)) => {
             summary.push(json!({"source":"yahoo_unofficial","symbol":"AAPL","dataset_coverage": result.dataset_coverage, "source_issues": result.source_issues}));
@@ -1315,14 +1483,17 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
 
     hub.start_stream("tradingview", "AAPL", vec!["tick".to_string()])?;
     // allow the synthetic streaming adapter to produce a few ticks
     std::thread::sleep(std::time::Duration::from_secs(4));
-    let processed = market_data::stream_consumer::consume_stream_files(&mut hub, "artifacts/streams", false)?;
+    let processed =
+        market_data::stream_consumer::consume_stream_files(&mut hub, "artifacts/streams", false)?;
     hub.stop_stream("tradingview", "AAPL")?;
     summary.push(json!({"source":"tradingview","symbol":"AAPL","processed_files": processed}));
 
@@ -1333,11 +1504,20 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     for item in &summary {
         if let Some(obj) = item.as_object() {
             if obj.contains_key("processed_files") {
-                if obj.get("processed_files").and_then(Value::as_u64).unwrap_or(0) == 0 {
+                if obj
+                    .get("processed_files")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    == 0
+                {
                     ok = false;
                 }
             } else if let Some(dc) = obj.get("dataset_coverage") {
-                if dc.as_object().map(|m| m.values().all(|v| v.as_u64().unwrap_or(0) == 0)).unwrap_or(true) {
+                if dc
+                    .as_object()
+                    .map(|m| m.values().all(|v| v.as_u64().unwrap_or(0) == 0))
+                    .unwrap_or(true)
+                {
                     ok = false;
                 }
             }
@@ -1355,7 +1535,11 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
             if cap.requires_api_key {
                 // skip sources that require API keys unless env var exists
                 if let Some(env_name) = &cap.api_key_env {
-                    if std::env::var(env_name).unwrap_or_default().trim().is_empty() {
+                    if std::env::var(env_name)
+                        .unwrap_or_default()
+                        .trim()
+                        .is_empty()
+                    {
                         summary.push(json!({"source": source, "skipped": "api_key_missing"}));
                         continue;
                     }
@@ -1366,9 +1550,32 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // pick first implemented dataset and a sample symbol
-            let dataset = cap.implemented_datasets.first().cloned().unwrap_or_else(|| "kline".to_string());
-            let symbol = discover_assets_live(&source, 1).first().cloned().unwrap_or_else(|| "BTCUSDT".to_string());
-            let opts = IngestOptions { source: source.clone(), symbol: symbol.clone(), datasets: vec![dataset.clone()], asset_type: "multi_asset".to_string(), timeframe: "1m".to_string(), limit: 50, store: false, record_root: None, manifest_root: None, duckdb_path: None };
+            let dataset = cap
+                .implemented_datasets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "kline".to_string());
+            let symbol = discover_assets_live(&source, 1)
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "BTCUSDT".to_string());
+            let opts = IngestOptions {
+                source: source.clone(),
+                symbol: symbol.clone(),
+                datasets: vec![dataset.clone()],
+                asset_type: "multi_asset".to_string(),
+                asset_class: None,
+                timeframe: "1m".to_string(),
+                limit: 50,
+                store: false,
+                force_asset_class: false,
+                record_root: None,
+                manifest_root: None,
+                duckdb_path: None,
+                explain_source: false,
+                force_source: false,
+                disable_source_mapping: false,
+            };
             match run_ingest_with_live_fetch(opts, None) {
                 Ok((result, _meta)) => {
                     summary.push(json!({"source": source, "symbol": symbol, "dataset": dataset, "dataset_coverage": result.dataset_coverage}));
@@ -1378,7 +1585,10 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        println!("full_smoke_summary: {}", serde_json::to_string_pretty(&json!(summary))?);
+        println!(
+            "full_smoke_summary: {}",
+            serde_json::to_string_pretty(&json!(summary))?
+        );
     }
 
     Ok(())
@@ -1390,7 +1600,8 @@ fn run_ingest_with_live_fetch(
 ) -> Result<(market_data::IngestResult, Map<String, Value>), Box<dyn std::error::Error>> {
     // Determine storage backend and expose the record_root used in metadata.
     let mut record_root_used: Option<String> = options.record_root.clone();
-    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used {
+    let storage: Box<dyn market_data::StorageBackend> = if let Some(record_root) = &record_root_used
+    {
         Box::new(LocalArtifactStorage::new(record_root)) as Box<dyn market_data::StorageBackend>
     } else if options.duckdb_path.is_some() {
         let store_path = format!("artifacts/store/{}", Utc::now().timestamp_millis());
@@ -1406,7 +1617,9 @@ fn run_ingest_with_live_fetch(
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
     streaming_registry.register(
         "tradingview",
-        std::sync::Arc::new(market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new()),
+        std::sync::Arc::new(
+            market_data::providers::tradingview_ws::TradingViewStreamingAdapter::new(),
+        ),
     );
     let mut hub = DataHub::with_components(storage, provenance, registry, streaming_registry);
     let mut extra_issues: Vec<String> = Vec::new();
@@ -1426,77 +1639,8 @@ fn run_ingest_with_live_fetch(
     let mut result = if raw_datasets.is_empty() {
         // Auto-selection / fallback when source is empty or explicitly set to "auto"
         if options.source.is_empty() || options.source == "auto" {
-            let caps = capability_map();
-            let asset_class = if options.asset_type != "multi_asset" && !options.asset_type.is_empty() {
-                Some(options.asset_type.as_str())
-            } else {
-                None
-            };
-            let primary_dataset = options
-                .datasets
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "kline".to_string());
-
-            let candidates = best_sources_for(
-                &caps,
-                &primary_dataset,
-                asset_class,
-                true,
-                true,
-                false,
-                None,
-            );
-
-            let mut attempted_sources: Vec<Value> = Vec::new();
-            let mut fallback_reasons: Vec<Value> = Vec::new();
-            let mut selected_source = String::new();
-            let mut fetched_map: HashMap<String, Value> = HashMap::new();
-
-            for row in candidates {
-                if let Some(candidate) = row.get("source") {
-                    let candidate = candidate.clone();
-                    // ensure candidate supports all requested datasets
-                    if let Some(cap) = caps.get(candidate.as_str()) {
-                        let mut supports_all = true;
-                        for ds in &options.datasets {
-                            let canonical = market_data::canonical_dataset_name(ds).to_string();
-                            if !cap.implemented_datasets.iter().any(|d| d == &canonical) {
-                                supports_all = false;
-                                break;
-                            }
-                        }
-                        if !supports_all {
-                            continue;
-                        }
-
-                        attempted_sources.push(Value::String(candidate.clone()));
-                        let (fetched, issues) = fetch_live_raw_datasets(
-                            &candidate,
-                            &options.symbol,
-                            &options.datasets,
-                            &options.timeframe,
-                            options.limit,
-                        );
-                        if !issues.is_empty() {
-                            fallback_reasons.push(Value::String(format!("{}:{}", candidate, issues.join("|"))));
-                        }
-                        extra_issues.extend(issues.clone());
-                        if !fetched.is_empty() {
-                            selected_source = candidate.clone();
-                            fetched_map = fetched;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            metadata.insert("selection_mode".to_string(), json!("auto"));
-            metadata.insert("attempted_sources".to_string(), Value::Array(attempted_sources.clone()));
-            metadata.insert("fallback_reasons".to_string(), Value::Array(fallback_reasons.clone()));
-            metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
-
-            if selected_source.is_empty() {
+            if options.disable_source_mapping {
+                metadata.insert("selection_mode".to_string(), json!("disabled"));
                 metadata.insert("selected_source".to_string(), json!("offline_fallback"));
                 metadata.insert("fallback_used".to_string(), json!(true));
                 hub.ingest(
@@ -1506,55 +1650,613 @@ fn run_ingest_with_live_fetch(
                     &options.timeframe,
                     options.limit,
                     effective_store,
+                    options.asset_class.as_deref(),
+                    options.force_asset_class,
                 )?
             } else {
-                metadata.insert("selected_source".to_string(), json!(selected_source.clone()));
-                metadata.insert("fallback_used".to_string(), json!(true));
-                hub.ingest_from_raw_with_asset_type(
-                    &selected_source,
+                let caps = capability_map();
+                let primary_dataset = options
+                    .datasets
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "kline".to_string());
+
+                // Load registry-driven metadata and run selector
+                let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                let registry_path = format!("{}/config/source_metadata.yaml", manifest_dir);
+                let registry = SourceRegistry::load_from_path(&registry_path).unwrap_or_default();
+                let hint = options.asset_class.as_deref();
+                let selector = SourceSelector::select(
                     &options.symbol,
-                    options.datasets,
-                    fetched_map,
-                    effective_store,
-                    &options.asset_type,
-                )?
-            }
+                    &primary_dataset,
+                    &registry,
+                    hint,
+                    None,
+                    false,
+                    false,
+                );
+
+                // Optionally include explain output in metadata
+                if options.explain_source {
+                    metadata.insert("selection_explain".to_string(), selector.explain.clone());
+                }
+
+                // Health checker with short TTL
+                let health = SourceHealth::new(Duration::from_secs(30));
+
+                // Helper to map a registry id (e.g. "binance") to a capability source key (e.g. "binance_spot")
+                let map_registry_to_cap = |reg_id: &str| -> Option<String> {
+                    // find candidate capability keys that contain the registry id
+                    let mut best: Option<(String, i32)> = None;
+                    for (key, cap) in &caps {
+                        if !key.contains(reg_id) && key != reg_id {
+                            continue;
+                        }
+                        let mut score = 0;
+                        // prefer capabilities that implement the primary dataset
+                        if cap
+                            .implemented_datasets
+                            .iter()
+                            .any(|d| d == &primary_dataset)
+                        {
+                            score += 20;
+                        }
+                        // prefer capabilities that share asset classes with registry metadata
+                        if let Some(reg_meta) = registry.get(reg_id) {
+                            for rc in &reg_meta.supported_asset_classes {
+                                if cap.asset_classes.iter().any(|ac| ac == rc) {
+                                    score += 5;
+                                }
+                            }
+                        }
+                        if best.is_none() || score > best.as_ref().unwrap().1 {
+                            best = Some((key.clone(), score));
+                        }
+                    }
+                    best.map(|(k, _)| k)
+                };
+
+                let mut attempted_sources: Vec<Value> = Vec::new();
+                let mut fallback_reasons: Vec<Value> = Vec::new();
+                let mut selected_source = String::new();
+                let mut fetched_map: HashMap<String, Value> = HashMap::new();
+
+                // Iterate selector candidates in descending preference
+                for cand in selector.candidates.iter() {
+                    attempted_sources.push(Value::String(cand.clone()));
+                    // map registry id -> capability key
+                    if let Some(mapped) = map_registry_to_cap(cand.as_str()) {
+                        // quick capability checks (API key, dataset support) are done inside fetch_live_raw_datasets
+                        // ensure source health before attempting network calls
+                        if !health.is_healthy(cand.as_str()) {
+                            fallback_reasons
+                                .push(Value::String(format!("{}:health_unhealthy", cand)));
+                            continue;
+                        }
+
+                        let (fetched, issues) = fetch_live_raw_datasets(
+                            &mapped,
+                            &options.symbol,
+                            &options.datasets,
+                            &options.timeframe,
+                            options.limit,
+                        );
+
+                        if !issues.is_empty() {
+                            fallback_reasons.push(Value::String(format!(
+                                "{}:{}",
+                                mapped,
+                                issues.join("|")
+                            )));
+                        }
+
+                        extra_issues.extend(issues.clone());
+                        if !fetched.is_empty() {
+                            selected_source = mapped.clone();
+                            fetched_map = fetched;
+                            break;
+                        }
+                    } else {
+                        fallback_reasons
+                            .push(Value::String(format!("{}:unknown_capability", cand)));
+                    }
+                }
+
+                metadata.insert("selection_mode".to_string(), json!("auto"));
+                metadata.insert(
+                    "attempted_sources".to_string(),
+                    Value::Array(attempted_sources.clone()),
+                );
+                metadata.insert(
+                    "fallback_reasons".to_string(),
+                    Value::Array(fallback_reasons.clone()),
+                );
+                metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+
+                if selected_source.is_empty() {
+                    // Try symbol enrichment (ISIN/FIGI/CoinGecko) and re-run selector on variants
+                    let enriched = generate_candidates(&options.symbol, Some(&options.asset_type));
+                    // Order variants using matcher ranking so exact/prefix/suffix candidates are tried first
+                    let mut variants_order: Vec<String> = enriched.clone();
+                    let ranked = rank_matches(&options.symbol, &enriched);
+                    if !ranked.is_empty() {
+                        variants_order = ranked.into_iter().map(|m| m.candidate).collect();
+                    }
+                    for variant in variants_order.iter() {
+                        let hint = options.asset_class.as_deref();
+                        let sel2 = SourceSelector::select(
+                            variant,
+                            &primary_dataset,
+                            &registry,
+                            hint,
+                            None,
+                            false,
+                            false,
+                        );
+                        if options.explain_source {
+                            metadata.insert(
+                                "selection_explain_variant".to_string(),
+                                sel2.explain.clone(),
+                            );
+                        }
+                        for cand in sel2.candidates.iter() {
+                            attempted_sources.push(Value::String(cand.clone()));
+                            if let Some(mapped) = map_registry_to_cap(cand.as_str()) {
+                                if !health.is_healthy(cand.as_str()) {
+                                    fallback_reasons
+                                        .push(Value::String(format!("{}:health_unhealthy", cand)));
+                                    continue;
+                                }
+
+                                let (fetched, issues) = fetch_live_raw_datasets(
+                                    &mapped,
+                                    variant,
+                                    &options.datasets,
+                                    &options.timeframe,
+                                    options.limit,
+                                );
+
+                                if !issues.is_empty() {
+                                    fallback_reasons.push(Value::String(format!(
+                                        "{}:{}",
+                                        mapped,
+                                        issues.join("|")
+                                    )));
+                                }
+
+                                extra_issues.extend(issues.clone());
+                                if !fetched.is_empty() {
+                                    selected_source = mapped.clone();
+                                    fetched_map = fetched;
+                                    break;
+                                }
+                            } else {
+                                fallback_reasons
+                                    .push(Value::String(format!("{}:unknown_capability", cand)));
+                            }
+                        }
+                        if !selected_source.is_empty() {
+                            break;
+                        }
+                    }
+
+                    if selected_source.is_empty() {
+                        metadata.insert("selected_source".to_string(), json!("offline_fallback"));
+                        metadata.insert("fallback_used".to_string(), json!(true));
+                        hub.ingest(
+                            "offline_fallback",
+                            &options.symbol,
+                            options.datasets,
+                            &options.timeframe,
+                            options.limit,
+                            effective_store,
+                            options.asset_class.as_deref(),
+                            options.force_asset_class,
+                        )?
+                    } else {
+                        metadata.insert(
+                            "selected_source".to_string(),
+                            json!(selected_source.clone()),
+                        );
+                        metadata.insert("fallback_used".to_string(), json!(true));
+                        hub.ingest_from_raw_with_asset_type(
+                            &selected_source,
+                            &options.symbol,
+                            options.datasets,
+                            fetched_map,
+                            effective_store,
+                            &options.asset_type,
+                            options.asset_class.as_deref(),
+                            options.force_asset_class,
+                        )?
+                    }
+                } else {
+                    metadata.insert(
+                        "selected_source".to_string(),
+                        json!(selected_source.clone()),
+                    );
+                    metadata.insert("fallback_used".to_string(), json!(true));
+                    hub.ingest_from_raw_with_asset_type(
+                        &selected_source,
+                        &options.symbol,
+                        options.datasets,
+                        fetched_map,
+                        effective_store,
+                        &options.asset_type,
+                        options.asset_class.as_deref(),
+                        options.force_asset_class,
+                    )?
+                }
+            } // end selection branch
         } else {
-            // explicit source provided: behave as before
-            let (fetched, issues) = fetch_live_raw_datasets(
-                &options.source,
-                &options.symbol,
-                &options.datasets,
-                &options.timeframe,
-                options.limit,
-            );
-            extra_issues.extend(issues.clone());
-
+            // explicit source provided: validate via registry/selector unless disabled or forced
             metadata.insert("selection_mode".to_string(), json!("explicit"));
-            metadata.insert("selected_source".to_string(), json!(options.source.clone()));
-            metadata.insert("attempted_sources".to_string(), Value::Array(vec![json!(options.source.clone())]));
-            metadata.insert("fallback_used".to_string(), json!(false));
-            metadata.insert("fallback_reasons".to_string(), Value::Array(Vec::new()));
-            metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+            metadata.insert("force_used".to_string(), json!(options.force_source));
 
-            if fetched.is_empty() && (options.source == "offline" || options.source == "offline_fallback") {
-                hub.ingest(
+            if options.disable_source_mapping
+                || options.force_source
+                || options.source == "offline"
+                || options.source == "offline_fallback"
+            {
+                // behave as before: attempt requested source directly
+                let (fetched, issues) = fetch_live_raw_datasets(
                     &options.source,
                     &options.symbol,
-                    options.datasets,
+                    &options.datasets,
                     &options.timeframe,
                     options.limit,
-                    effective_store,
-                )?
+                );
+                extra_issues.extend(issues.clone());
+                metadata.insert(
+                    "attempted_sources".to_string(),
+                    Value::Array(vec![json!(options.source.clone())]),
+                );
+                metadata.insert("fallback_used".to_string(), json!(false));
+                metadata.insert("fallback_reasons".to_string(), Value::Array(Vec::new()));
+                metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+
+                if fetched.is_empty()
+                    && (options.source == "offline" || options.source == "offline_fallback")
+                {
+                    hub.ingest(
+                        &options.source,
+                        &options.symbol,
+                        options.datasets,
+                        &options.timeframe,
+                        options.limit,
+                        effective_store,
+                        options.asset_class.as_deref(),
+                        options.force_asset_class,
+                    )?
+                } else {
+                    hub.ingest_from_raw_with_asset_type(
+                        &options.source,
+                        &options.symbol,
+                        options.datasets,
+                        fetched,
+                        effective_store,
+                        &options.asset_type,
+                        options.asset_class.as_deref(),
+                        options.force_asset_class,
+                    )?
+                }
             } else {
-                hub.ingest_from_raw_with_asset_type(
-                    &options.source,
+                // Validate requested source against registry and selector
+                let manifest_dir = env!("CARGO_MANIFEST_DIR");
+                let registry_path = format!("{}/config/source_metadata.yaml", manifest_dir);
+                let registry = SourceRegistry::load_from_path(&registry_path).unwrap_or_default();
+                let primary_dataset = options
+                    .datasets
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "kline".to_string());
+
+                let hint = options.asset_class.as_deref();
+                let selector = SourceSelector::select(
                     &options.symbol,
-                    options.datasets,
-                    fetched,
-                    effective_store,
-                    &options.asset_type,
-                )?
+                    &primary_dataset,
+                    &registry,
+                    hint,
+                    Some(&options.source),
+                    options.force_source,
+                    false,
+                );
+                if options.explain_source {
+                    metadata.insert("selection_explain".to_string(), selector.explain.clone());
+                }
+
+                // If selector suggests a different registry id, try the mapped capability first
+                if let Some(chosen_reg) = selector.chosen {
+                    if chosen_reg != options.source {
+                        // map registry id -> capability key
+                        let caps = capability_map();
+                        let mut mapped_cap: Option<String> = None;
+                        for (key, cap) in &caps {
+                            if key == &chosen_reg || key.contains(&chosen_reg) {
+                                mapped_cap = Some(key.clone());
+                                break;
+                            }
+                        }
+
+                        if let Some(mapped) = mapped_cap {
+                            let (fetched, issues) = fetch_live_raw_datasets(
+                                &mapped,
+                                &options.symbol,
+                                &options.datasets,
+                                &options.timeframe,
+                                options.limit,
+                            );
+                            if !issues.is_empty() {
+                                extra_issues.extend(issues.clone());
+                            }
+
+                            if !fetched.is_empty() {
+                                metadata.insert(
+                                    "attempted_sources".to_string(),
+                                    Value::Array(vec![json!(mapped.clone())]),
+                                );
+                                metadata
+                                    .insert("selected_source".to_string(), json!(mapped.clone()));
+                                metadata.insert("fallback_used".to_string(), json!(true));
+                                metadata.insert(
+                                    "fallback_reasons".to_string(),
+                                    Value::Array(Vec::new()),
+                                );
+                                metadata
+                                    .insert("warnings".to_string(), json!(extra_issues.clone()));
+                                hub.ingest_from_raw_with_asset_type(
+                                    &mapped,
+                                    &options.symbol,
+                                    options.datasets,
+                                    fetched,
+                                    effective_store,
+                                    &options.asset_type,
+                                    options.asset_class.as_deref(),
+                                    options.force_asset_class,
+                                )?
+                            } else {
+                                // mapped candidate failed — fall back to requested source attempt
+                                let (fetched_req, issues_req) = fetch_live_raw_datasets(
+                                    &options.source,
+                                    &options.symbol,
+                                    &options.datasets,
+                                    &options.timeframe,
+                                    options.limit,
+                                );
+                                extra_issues.extend(issues_req.clone());
+                                metadata.insert(
+                                    "attempted_sources".to_string(),
+                                    Value::Array(vec![
+                                        json!(mapped.clone()),
+                                        json!(options.source.clone()),
+                                    ]),
+                                );
+                                metadata
+                                    .insert("warnings".to_string(), json!(extra_issues.clone()));
+                                if !fetched_req.is_empty() {
+                                    metadata.insert(
+                                        "selected_source".to_string(),
+                                        json!(options.source.clone()),
+                                    );
+                                    metadata.insert("fallback_used".to_string(), json!(true));
+                                    hub.ingest_from_raw_with_asset_type(
+                                        &options.source,
+                                        &options.symbol,
+                                        options.datasets,
+                                        fetched_req,
+                                        effective_store,
+                                        &options.asset_type,
+                                        options.asset_class.as_deref(),
+                                        options.force_asset_class,
+                                    )?
+                                } else {
+                                    metadata.insert(
+                                        "selected_source".to_string(),
+                                        json!("offline_fallback"),
+                                    );
+                                    metadata.insert("fallback_used".to_string(), json!(true));
+                                    hub.ingest(
+                                        "offline_fallback",
+                                        &options.symbol,
+                                        options.datasets,
+                                        &options.timeframe,
+                                        options.limit,
+                                        effective_store,
+                                        options.asset_class.as_deref(),
+                                        options.force_asset_class,
+                                    )?
+                                }
+                            }
+                        } else {
+                            // No capability mapping found; fall back to requested source attempt
+                            let (fetched, issues) = fetch_live_raw_datasets(
+                                &options.source,
+                                &options.symbol,
+                                &options.datasets,
+                                &options.timeframe,
+                                options.limit,
+                            );
+                            extra_issues.extend(issues.clone());
+                            metadata.insert(
+                                "attempted_sources".to_string(),
+                                Value::Array(vec![json!(options.source.clone())]),
+                            );
+                            metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+                            if !fetched.is_empty() {
+                                metadata.insert(
+                                    "selected_source".to_string(),
+                                    json!(options.source.clone()),
+                                );
+                                metadata.insert("fallback_used".to_string(), json!(false));
+                                hub.ingest_from_raw_with_asset_type(
+                                    &options.source,
+                                    &options.symbol,
+                                    options.datasets,
+                                    fetched,
+                                    effective_store,
+                                    &options.asset_type,
+                                    options.asset_class.as_deref(),
+                                    options.force_asset_class,
+                                )?
+                            } else {
+                                // Attempt symbol variants on the requested explicit source before final fallback
+                                let variants =
+                                    generate_candidates(&options.symbol, Some(&options.asset_type));
+                                let mut variant_order: Vec<String> = variants.clone();
+                                let ranked = rank_matches(&options.symbol, &variants);
+                                if !ranked.is_empty() {
+                                    variant_order =
+                                        ranked.into_iter().map(|m| m.candidate).collect();
+                                }
+                                let mut found_variant: Option<(String, HashMap<String, Value>)> =
+                                    None;
+                                for var in variant_order.iter() {
+                                    let (fetched_v, issues_v) = fetch_live_raw_datasets(
+                                        &options.source,
+                                        var,
+                                        &options.datasets,
+                                        &options.timeframe,
+                                        options.limit,
+                                    );
+                                    extra_issues.extend(issues_v.clone());
+                                    if !fetched_v.is_empty() {
+                                        found_variant = Some((var.clone(), fetched_v));
+                                        break;
+                                    }
+                                }
+
+                                if let Some((var, fetched_v)) = found_variant {
+                                    metadata.insert(
+                                        "attempted_sources".to_string(),
+                                        Value::Array(vec![json!(options.source.clone())]),
+                                    );
+                                    metadata.insert(
+                                        "selected_source".to_string(),
+                                        json!(options.source.clone()),
+                                    );
+                                    metadata.insert("fallback_used".to_string(), json!(false));
+                                    metadata.insert(
+                                        "warnings".to_string(),
+                                        json!(extra_issues.clone()),
+                                    );
+                                    hub.ingest_from_raw_with_asset_type(
+                                        &options.source,
+                                        &var,
+                                        options.datasets,
+                                        fetched_v,
+                                        effective_store,
+                                        &options.asset_type,
+                                        options.asset_class.as_deref(),
+                                        options.force_asset_class,
+                                    )?
+                                } else {
+                                    metadata.insert(
+                                        "selected_source".to_string(),
+                                        json!("offline_fallback"),
+                                    );
+                                    metadata.insert("fallback_used".to_string(), json!(true));
+                                    hub.ingest(
+                                        "offline_fallback",
+                                        &options.symbol,
+                                        options.datasets,
+                                        &options.timeframe,
+                                        options.limit,
+                                        effective_store,
+                                        options.asset_class.as_deref(),
+                                        options.force_asset_class,
+                                    )?
+                                }
+                            }
+                        }
+                    } else {
+                        // selector agreed with requested source — attempt it
+                        let (fetched, issues) = fetch_live_raw_datasets(
+                            &options.source,
+                            &options.symbol,
+                            &options.datasets,
+                            &options.timeframe,
+                            options.limit,
+                        );
+                        extra_issues.extend(issues.clone());
+                        metadata.insert(
+                            "attempted_sources".to_string(),
+                            Value::Array(vec![json!(options.source.clone())]),
+                        );
+                        metadata
+                            .insert("selected_source".to_string(), json!(options.source.clone()));
+                        metadata.insert("fallback_used".to_string(), json!(false));
+                        metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+                        if !fetched.is_empty() {
+                            hub.ingest_from_raw_with_asset_type(
+                                &options.source,
+                                &options.symbol,
+                                options.datasets,
+                                fetched,
+                                effective_store,
+                                &options.asset_type,
+                                options.asset_class.as_deref(),
+                                options.force_asset_class,
+                            )?
+                        } else {
+                            metadata
+                                .insert("selected_source".to_string(), json!("offline_fallback"));
+                            metadata.insert("fallback_used".to_string(), json!(true));
+                            hub.ingest(
+                                "offline_fallback",
+                                &options.symbol,
+                                options.datasets,
+                                &options.timeframe,
+                                options.limit,
+                                effective_store,
+                                options.asset_class.as_deref(),
+                                options.force_asset_class,
+                            )?
+                        }
+                    }
+                } else {
+                    // selector did not find anything; attempt requested source as-is
+                    let (fetched, issues) = fetch_live_raw_datasets(
+                        &options.source,
+                        &options.symbol,
+                        &options.datasets,
+                        &options.timeframe,
+                        options.limit,
+                    );
+                    extra_issues.extend(issues.clone());
+                    metadata.insert(
+                        "attempted_sources".to_string(),
+                        Value::Array(vec![json!(options.source.clone())]),
+                    );
+                    metadata.insert("warnings".to_string(), json!(extra_issues.clone()));
+                    if !fetched.is_empty() {
+                        metadata
+                            .insert("selected_source".to_string(), json!(options.source.clone()));
+                        metadata.insert("fallback_used".to_string(), json!(false));
+                        hub.ingest_from_raw_with_asset_type(
+                            &options.source,
+                            &options.symbol,
+                            options.datasets,
+                            fetched,
+                            effective_store,
+                            &options.asset_type,
+                            options.asset_class.as_deref(),
+                            options.force_asset_class,
+                        )?
+                    } else {
+                        metadata.insert("selected_source".to_string(), json!("offline_fallback"));
+                        metadata.insert("fallback_used".to_string(), json!(true));
+                        hub.ingest(
+                            "offline_fallback",
+                            &options.symbol,
+                            options.datasets,
+                            &options.timeframe,
+                            options.limit,
+                            effective_store,
+                            options.asset_class.as_deref(),
+                            options.force_asset_class,
+                        )?
+                    }
+                }
             }
         }
     } else {
@@ -1565,9 +2267,10 @@ fn run_ingest_with_live_fetch(
             raw_datasets,
             effective_store,
             &options.asset_type,
+            options.asset_class.as_deref(),
+            options.force_asset_class,
         )?
     };
-
 
     // If duckdb import requested, and we have a persisted record_root (set above), write helper and attempt import
     if let Some(duckdb_path) = options.duckdb_path.as_deref() {
@@ -1601,14 +2304,29 @@ if __name__ == '__main__':
 "###;
             std::fs::write(script_path, script)?;
 
-            match Command::new("python3").arg("-c").arg("import duckdb").status() {
+            match Command::new("python3")
+                .arg("-c")
+                .arg("import duckdb")
+                .status()
+            {
                 Ok(status) if status.success() => {
-                    match Command::new("python3").arg(script_path).arg(duckdb_path).arg(record_root_dir).output() {
+                    match Command::new("python3")
+                        .arg(script_path)
+                        .arg(duckdb_path)
+                        .arg(record_root_dir)
+                        .output()
+                    {
                         Ok(out) => {
                             if out.status.success() {
-                                eprintln!("duckdb import succeeded: {}", String::from_utf8_lossy(&out.stdout));
+                                eprintln!(
+                                    "duckdb import succeeded: {}",
+                                    String::from_utf8_lossy(&out.stdout)
+                                );
                             } else {
-                                eprintln!("duckdb import failed: {}", String::from_utf8_lossy(&out.stderr));
+                                eprintln!(
+                                    "duckdb import failed: {}",
+                                    String::from_utf8_lossy(&out.stderr)
+                                );
                             }
                         }
                         Err(e) => {
@@ -1617,7 +2335,9 @@ if __name__ == '__main__':
                     }
                 }
                 _ => {
-                    eprintln!("python3 duckdb module not available; helper written to artifacts/duckdb_import.py");
+                    eprintln!(
+                        "python3 duckdb module not available; helper written to artifacts/duckdb_import.py"
+                    );
                 }
             }
         } else {
@@ -1665,7 +2385,9 @@ fn ingest_options_from_json_payload(
         source,
         symbol,
         datasets,
-        asset_type: payload_string(payload, "asset_type").unwrap_or_else(|| "multi_asset".to_string()),
+        asset_type: payload_string(payload, "asset_type")
+            .unwrap_or_else(|| "multi_asset".to_string()),
+        asset_class: payload_string(payload, "asset_class"),
         timeframe: payload_string(payload, "timeframe").unwrap_or_else(|| "1m".to_string()),
         limit: payload
             .get("limit")
@@ -1673,9 +2395,14 @@ fn ingest_options_from_json_payload(
             .map(|value| value as usize)
             .unwrap_or(500),
         store: payload_bool(payload, "store").unwrap_or(false),
+        force_asset_class: payload_bool(payload, "force_asset_class").unwrap_or(false),
         record_root: payload_string(payload, "record_root"),
         manifest_root: payload_string(payload, "manifest_root"),
-        duckdb_path: payload_string(payload, "duckdb").or_else(|| payload_string(payload, "duckdb_path")),
+        duckdb_path: payload_string(payload, "duckdb")
+            .or_else(|| payload_string(payload, "duckdb_path")),
+        explain_source: payload_bool(payload, "explain_source").unwrap_or(false),
+        force_source: payload_bool(payload, "force_source").unwrap_or(false),
+        disable_source_mapping: payload_bool(payload, "disable_source_mapping").unwrap_or(false),
     })
 }
 
@@ -1690,6 +2417,7 @@ fn load_market_data_options_from_json_payload(
         symbol,
         datasets: vec![dataset],
         asset_type: "multi_asset".to_string(),
+        asset_class: payload_string(payload, "asset_class"),
         timeframe: payload_string(payload, "timeframe").unwrap_or_else(|| "1m".to_string()),
         limit: payload
             .get("limit")
@@ -1697,9 +2425,13 @@ fn load_market_data_options_from_json_payload(
             .map(|value| value as usize)
             .unwrap_or(500),
         store: false,
+        force_asset_class: false,
         record_root: None,
         manifest_root: None,
         duckdb_path: None,
+        explain_source: false,
+        force_source: false,
+        disable_source_mapping: false,
     })
 }
 
@@ -1715,10 +2447,14 @@ fn discover_assets_live(source: &str, limit: usize) -> Vec<String> {
             .into_iter()
             .take(max_limit)
             .collect(),
-        "stooq" => vec!["aapl.us".to_string(), "msft.us".to_string(), "spy.us".to_string()]
-            .into_iter()
-            .take(max_limit)
-            .collect(),
+        "stooq" => vec![
+            "aapl.us".to_string(),
+            "msft.us".to_string(),
+            "spy.us".to_string(),
+        ]
+        .into_iter()
+        .take(max_limit)
+        .collect(),
         "frankfurter_fx" => discover_frankfurter_assets(max_limit),
         "gdelt" => vec!["bitcoin".to_string(), "fed".to_string(), "oil".to_string()]
             .into_iter()
@@ -1733,10 +2469,14 @@ fn discover_assets_live(source: &str, limit: usize) -> Vec<String> {
             .into_iter()
             .take(max_limit)
             .collect(),
-        "yahoo_unofficial" => vec!["AAPL".to_string(), "MSFT".to_string(), "BTC-USD".to_string()]
-            .into_iter()
-            .take(max_limit)
-            .collect(),
+        "yahoo_unofficial" => vec![
+            "AAPL".to_string(),
+            "MSFT".to_string(),
+            "BTC-USD".to_string(),
+        ]
+        .into_iter()
+        .take(max_limit)
+        .collect(),
         "offline" | "offline_fallback" => vec!["BTCUSDT".to_string(), "ETHUSDT".to_string()]
             .into_iter()
             .take(max_limit)
@@ -1781,12 +2521,15 @@ fn fetch_live_raw_datasets(
 
         for dataset in datasets {
             let canonical = market_data::canonical_dataset_name(dataset).to_string();
-                if !cap.datasets.iter().any(|item| item == &canonical)
-                    || !cap.implemented_datasets.iter().any(|item| item == &canonical)
-                {
-                    issues.push(format!("unsupported_dataset:{canonical}"));
-                    continue;
-                }
+            if !cap.datasets.iter().any(|item| item == &canonical)
+                || !cap
+                    .implemented_datasets
+                    .iter()
+                    .any(|item| item == &canonical)
+            {
+                issues.push(format!("unsupported_dataset:{canonical}"));
+                continue;
+            }
             fetchable.push(canonical);
         }
     } else {
@@ -1869,7 +2612,8 @@ fn fetch_live_dataset(
 }
 
 fn fetch_btcturk_tick(symbol: &str) -> Result<Value, String> {
-    let base = std::env::var("BTCTURK_BASE_URL").unwrap_or_else(|_| "https://api.btcturk.com".to_string());
+    let base =
+        std::env::var("BTCTURK_BASE_URL").unwrap_or_else(|_| "https://api.btcturk.com".to_string());
     let base = base.trim_end_matches('/');
     let url = format!("{}/api/v2/ticker?pairSymbol={}", base, symbol);
     let json_v = fetch_json(&url, "btcturk")?;
@@ -1896,7 +2640,8 @@ fn fetch_btcturk_tick(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_kap_disclosures(symbol: &str) -> Result<Value, String> {
-    let base = std::env::var("KAP_BASE_URL").unwrap_or_else(|_| "https://www.kap.org.tr".to_string());
+    let base =
+        std::env::var("KAP_BASE_URL").unwrap_or_else(|_| "https://www.kap.org.tr".to_string());
     let base = base.trim_end_matches('/');
     let url = format!("{}/tr/api/disclosures?company={}", base, symbol);
     let mut json_v = fetch_json(&url, "kap")?;
@@ -1917,15 +2662,20 @@ fn fetch_fintables_fundamentals(symbol: &str) -> Result<Value, String> {
     if !scraping_enabled {
         return Err("scraping_disabled:fintables".to_string());
     }
-    let base = std::env::var("FINTABLES_BASE_URL").unwrap_or_else(|_| "https://fintables.com".to_string());
+    let base =
+        std::env::var("FINTABLES_BASE_URL").unwrap_or_else(|_| "https://fintables.com".to_string());
     let base = base.trim_end_matches('/');
-    let url = format!("{}/sirketler/{}/sermaye-artirimlari-temettuler", base, symbol);
+    let url = format!(
+        "{}/sirketler/{}/sermaye-artirimlari-temettuler",
+        base, symbol
+    );
     let text = fetch_text(&url, "fintables")?;
     Ok(json!([{"html": text, "source": "fintables", "symbol": symbol}]))
 }
 
 fn fetch_paratic_tick(symbol: &str) -> Result<Value, String> {
-    let base = std::env::var("PARATIC_BASE_URL").unwrap_or_else(|_| "https://piyasa.paratic.com".to_string());
+    let base = std::env::var("PARATIC_BASE_URL")
+        .unwrap_or_else(|_| "https://piyasa.paratic.com".to_string());
     let base = base.trim_end_matches('/');
     let url = format!("{}/API/g.php?symbol={}", base, symbol);
     let json_v = fetch_json(&url, "paratic")?;
@@ -1933,7 +2683,8 @@ fn fetch_paratic_tick(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_dovizcom_tick(symbol: &str) -> Result<Value, String> {
-    let base = std::env::var("DOVIZCOM_BASE_URL").unwrap_or_else(|_| "https://www.doviz.com".to_string());
+    let base =
+        std::env::var("DOVIZCOM_BASE_URL").unwrap_or_else(|_| "https://www.doviz.com".to_string());
     let base = base.trim_end_matches('/');
     let url = format!("{}/api/v1/symbols/{}/ticker", base, symbol);
     let json_v = fetch_json(&url, "dovizcom")?;
@@ -1954,7 +2705,8 @@ fn fetch_tefas_values(symbol: &str) -> Result<Value, String> {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("tefas_cli_exit:{}:{}", output.status, stderr));
         }
-        let stdout = String::from_utf8(output.stdout).map_err(|e| format!("tefas_cli_output_utf8:{e}"))?;
+        let stdout =
+            String::from_utf8(output.stdout).map_err(|e| format!("tefas_cli_output_utf8:{e}"))?;
         serde_json::from_str::<Value>(&stdout).map_err(|e| format!("tefas_cli_output_json:{e}"))
     }
 
@@ -1988,7 +2740,8 @@ fn fetch_tefas_values(symbol: &str) -> Result<Value, String> {
     }
 
     // Fallback to simple TEFAS public HTTP endpoint if CLI not available or fails
-    let base = std::env::var("TEFAS_BASE_URL").unwrap_or_else(|_| "https://www.tefas.gov.tr".to_string());
+    let base =
+        std::env::var("TEFAS_BASE_URL").unwrap_or_else(|_| "https://www.tefas.gov.tr".to_string());
     let base = base.trim_end_matches('/');
     let url = format!("{}/api/values?symbol={}", base, symbol);
     let json_v = fetch_json(&url, "tefas")?;
@@ -1998,16 +2751,28 @@ fn fetch_tefas_values(symbol: &str) -> Result<Value, String> {
 fn fetch_tefas_kline(symbol: &str) -> Result<Value, String> {
     // Reuse the existing CLI-first query but synthesise OHLCV kline rows
     let v = fetch_tefas_values(symbol)?;
-    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+    if let Some(arr) = v
+        .get("fonFiyatBilgiGetir")
+        .and_then(|o| o.get("resultList"))
+        .and_then(|r| r.as_array())
+    {
         let mut out_arr = Vec::new();
         for item in arr {
             if let Some(obj) = item.as_object() {
-                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok()
-                    .map(|d| d.and_hms_opt(0,0,0).unwrap())
+                let tarih = obj
+                    .get("tarih")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                    .ok()
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
                     .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
                     .unwrap_or(0_i64);
-                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                let price = obj
+                    .get("fiyat")
+                    .cloned()
+                    .or_else(|| obj.get("price").cloned())
+                    .unwrap_or(Value::Null);
                 let mut rec = serde_json::Map::new();
                 rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
                 rec.insert("open".to_string(), price.clone());
@@ -2025,15 +2790,27 @@ fn fetch_tefas_kline(symbol: &str) -> Result<Value, String> {
 
 fn fetch_tefas_tick(symbol: &str) -> Result<Value, String> {
     let v = fetch_tefas_values(symbol)?;
-    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+    if let Some(arr) = v
+        .get("fonFiyatBilgiGetir")
+        .and_then(|o| o.get("resultList"))
+        .and_then(|r| r.as_array())
+    {
         if let Some(latest) = arr.last() {
             if let Some(obj) = latest.as_object() {
-                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok()
-                    .map(|d| d.and_hms_opt(0,0,0).unwrap())
+                let tarih = obj
+                    .get("tarih")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                    .ok()
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
                     .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
                     .unwrap_or(0_i64);
-                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                let price = obj
+                    .get("fiyat")
+                    .cloned()
+                    .or_else(|| obj.get("price").cloned())
+                    .unwrap_or(Value::Null);
                 let mut rec = serde_json::Map::new();
                 rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
                 rec.insert("last".to_string(), price.clone());
@@ -2145,7 +2922,9 @@ fn fetch_coingecko_kline(symbol: &str, limit: usize) -> Result<Value, String> {
 
     let mut out = Vec::new();
     for (index, row) in prices.iter().enumerate().take(limit.max(1)) {
-        let Some(values) = row.as_array() else { continue };
+        let Some(values) = row.as_array() else {
+            continue;
+        };
         if values.len() < 2 {
             continue;
         }
@@ -2163,7 +2942,8 @@ fn fetch_coingecko_kline(symbol: &str, limit: usize) -> Result<Value, String> {
 }
 
 fn fetch_coingecko_tick(symbol: &str) -> Result<Value, String> {
-    let url = format!("https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd");
+    let url =
+        format!("https://api.coingecko.com/api/v3/simple/price?ids={symbol}&vs_currencies=usd");
     let payload = fetch_json(&url, "coingecko")?;
     let price = payload
         .get(symbol)
@@ -2209,7 +2989,11 @@ fn fetch_stooq_kline(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_frankfurter_macro(symbol: &str) -> Result<Value, String> {
-    let base = if symbol.trim().is_empty() { "USD" } else { symbol };
+    let base = if symbol.trim().is_empty() {
+        "USD"
+    } else {
+        symbol
+    };
     let url = format!("https://api.frankfurter.dev/v1/latest?base={base}");
     let payload = fetch_json(&url, "frankfurter_fx")?;
     let date = payload
@@ -2233,7 +3017,11 @@ fn fetch_frankfurter_macro(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_frankfurter_tick(symbol: &str) -> Result<Value, String> {
-    let quote = if symbol.trim().is_empty() { "EUR" } else { symbol };
+    let quote = if symbol.trim().is_empty() {
+        "EUR"
+    } else {
+        symbol
+    };
     let url = format!("https://api.frankfurter.dev/v1/latest?base=USD&symbols={quote}");
     let payload = fetch_json(&url, "frankfurter_fx")?;
     let value = payload
@@ -2251,7 +3039,11 @@ fn fetch_frankfurter_tick(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_hacker_news(symbol: &str, limit: usize) -> Result<Value, String> {
-    let query = if symbol.trim().is_empty() { "bitcoin" } else { symbol };
+    let query = if symbol.trim().is_empty() {
+        "bitcoin"
+    } else {
+        symbol
+    };
     let url = format!(
         "https://hn.algolia.com/api/v1/search?query={query}&tags=story&hitsPerPage={}",
         limit.max(1)
@@ -2283,7 +3075,11 @@ fn fetch_hacker_news(symbol: &str, limit: usize) -> Result<Value, String> {
 }
 
 fn fetch_gdelt_news(symbol: &str, limit: usize) -> Result<Value, String> {
-    let query = if symbol.trim().is_empty() { "bitcoin" } else { symbol };
+    let query = if symbol.trim().is_empty() {
+        "bitcoin"
+    } else {
+        symbol
+    };
     let url = format!(
         "https://api.gdeltproject.org/api/v2/doc/doc?query={query}&mode=artlist&format=json&maxrecords={}",
         limit.max(1)
@@ -2343,11 +3139,31 @@ fn fetch_yahoo_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Valu
         .and_then(|rows| rows.first())
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let opens = quote.get("open").and_then(Value::as_array).cloned().unwrap_or_default();
-    let highs = quote.get("high").and_then(Value::as_array).cloned().unwrap_or_default();
-    let lows = quote.get("low").and_then(Value::as_array).cloned().unwrap_or_default();
-    let closes = quote.get("close").and_then(Value::as_array).cloned().unwrap_or_default();
-    let volumes = quote.get("volume").and_then(Value::as_array).cloned().unwrap_or_default();
+    let opens = quote
+        .get("open")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let highs = quote
+        .get("high")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let lows = quote
+        .get("low")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let closes = quote
+        .get("close")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let volumes = quote
+        .get("volume")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
     let mut out = Vec::new();
     for index in 0..timestamps.len().min(limit.max(1)) {
         let ts = timestamps.get(index).and_then(Value::as_i64).unwrap_or(0) * 1000;
@@ -2367,9 +3183,8 @@ fn fetch_yahoo_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Valu
 }
 
 fn fetch_yahoo_tick(symbol: &str) -> Result<Value, String> {
-    let url = format!(
-        "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
-    );
+    let url =
+        format!("https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d");
     let payload = fetch_json(&url, "yahoo_unofficial")?;
     let close = payload
         .get("chart")
@@ -2395,9 +3210,7 @@ fn fetch_yahoo_tick(symbol: &str) -> Result<Value, String> {
 
 fn fetch_kraken_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Value, String> {
     let interval = timeframe_to_kraken_interval(timeframe);
-    let url = format!(
-        "https://api.kraken.com/0/public/OHLC?pair={symbol}&interval={interval}"
-    );
+    let url = format!("https://api.kraken.com/0/public/OHLC?pair={symbol}&interval={interval}");
     let payload = fetch_json(&url, "kraken_spot")?;
     let result = payload
         .get("result")
@@ -2411,18 +3224,35 @@ fn fetch_kraken_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Val
         .unwrap_or_default();
     let mut out = Vec::new();
     for row in series.into_iter().take(limit.max(1)) {
-        let Some(values) = row.as_array() else { continue };
+        let Some(values) = row.as_array() else {
+            continue;
+        };
         if values.len() < 7 {
             continue;
         }
         let ts = values[0].as_i64().unwrap_or(0) * 1000;
         out.push(json!([
             ts,
-            values[1].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[2].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[3].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[4].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[6].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+            values[1]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[2]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[3]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[4]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[6]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
         ]));
     }
     Ok(Value::Array(out))
@@ -2437,7 +3267,9 @@ fn fetch_coinbase_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<V
     let rows = payload.as_array().cloned().unwrap_or_default();
     let mut out = Vec::new();
     for row in rows.into_iter().take(limit.max(1)) {
-        let Some(values) = row.as_array() else { continue };
+        let Some(values) = row.as_array() else {
+            continue;
+        };
         if values.len() < 6 {
             continue;
         }
@@ -2466,17 +3298,34 @@ fn fetch_binance_futures_kline(
     let rows = payload.as_array().cloned().unwrap_or_default();
     let mut out = Vec::new();
     for row in rows {
-        let Some(values) = row.as_array() else { continue };
+        let Some(values) = row.as_array() else {
+            continue;
+        };
         if values.len() < 6 {
             continue;
         }
         out.push(json!([
             values[0],
-            values[1].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[2].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[3].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[4].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[5].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+            values[1]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[2]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[3]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[4]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[5]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
         ]));
     }
     Ok(Value::Array(out))
@@ -2557,17 +3406,34 @@ fn fetch_binance_spot_kline(symbol: &str, timeframe: &str, limit: usize) -> Resu
     let rows = payload.as_array().cloned().unwrap_or_default();
     let mut out = Vec::new();
     for row in rows {
-        let Some(values) = row.as_array() else { continue };
+        let Some(values) = row.as_array() else {
+            continue;
+        };
         if values.len() < 6 {
             continue;
         }
         out.push(json!([
             values[0],
-            values[1].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[2].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[3].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[4].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-            values[5].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+            values[1]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[2]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[3]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[4]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0),
+            values[5]
+                .as_str()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
         ]));
     }
     Ok(Value::Array(out))
@@ -2647,12 +3513,30 @@ fn fetch_bybit_kline(symbol: &str, timeframe: &str, limit: usize) -> Result<Valu
         .filter(|row| row.len() >= 6)
         .map(|row| {
             json!([
-                row[0].as_str().and_then(|v| v.parse::<i64>().ok()).unwrap_or(0),
-                row[1].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-                row[2].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-                row[3].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-                row[4].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
-                row[5].as_str().and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0)
+                row[0]
+                    .as_str()
+                    .and_then(|v| v.parse::<i64>().ok())
+                    .unwrap_or(0),
+                row[1]
+                    .as_str()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0),
+                row[2]
+                    .as_str()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0),
+                row[3]
+                    .as_str()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0),
+                row[4]
+                    .as_str()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0),
+                row[5]
+                    .as_str()
+                    .and_then(|v| v.parse::<f64>().ok())
+                    .unwrap_or(0.0)
             ])
         })
         .collect::<Vec<_>>();
@@ -2684,9 +3568,7 @@ fn fetch_bybit_funding(symbol: &str, limit: usize) -> Result<Value, String> {
 }
 
 fn fetch_bybit_tick(symbol: &str) -> Result<Value, String> {
-    let url = format!(
-        "https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}"
-    );
+    let url = format!("https://api.bybit.com/v5/market/tickers?category=linear&symbol={symbol}");
     let payload = fetch_json(&url, "bybit_linear")?;
     let ticker = payload
         .get("result")
@@ -2878,10 +3760,7 @@ fn fetch_world_bank_macro(series_id: &str) -> Result<Value, String> {
     Ok(Value::Array(
         rows.into_iter()
             .map(|row| {
-                let date = row
-                    .get("date")
-                    .and_then(Value::as_str)
-                    .unwrap_or("1970");
+                let date = row.get("date").and_then(Value::as_str).unwrap_or("1970");
                 json!({
                     "date": format!("{date}-01-01T00:00:00Z"),
                     "series_id": indicator,
@@ -2893,7 +3772,11 @@ fn fetch_world_bank_macro(series_id: &str) -> Result<Value, String> {
 }
 
 fn fetch_ecb_macro(symbol: &str) -> Result<Value, String> {
-    let quote = if symbol.trim().is_empty() { "USD" } else { symbol };
+    let quote = if symbol.trim().is_empty() {
+        "USD"
+    } else {
+        symbol
+    };
     let url = format!(
         "https://data-api.ecb.europa.eu/service/data/EXR/D.{quote}.EUR.SP00.A?format=jsondata"
     );
@@ -2927,7 +3810,11 @@ fn fetch_ecb_macro(symbol: &str) -> Result<Value, String> {
 }
 
 fn fetch_ecb_tick(symbol: &str) -> Result<Value, String> {
-    let quote = if symbol.trim().is_empty() { "USD" } else { symbol };
+    let quote = if symbol.trim().is_empty() {
+        "USD"
+    } else {
+        symbol
+    };
     let url = format!(
         "https://data-api.ecb.europa.eu/service/data/EXR/D.{quote}.EUR.SP00.A?format=jsondata"
     );
@@ -2970,17 +3857,24 @@ fn discover_coingecko_assets(limit: usize) -> Vec<String> {
         .and_then(|payload| payload.as_array().cloned())
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToString::to_string))
+        .filter_map(|row| {
+            row.get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        })
         .take(limit.max(1))
         .collect()
 }
 
 fn discover_frankfurter_assets(limit: usize) -> Vec<String> {
-    fetch_json("https://api.frankfurter.dev/v1/currencies", "frankfurter_fx")
-        .ok()
-        .and_then(|payload| payload.as_object().cloned())
-        .map(|rows| rows.keys().take(limit.max(1)).cloned().collect())
-        .unwrap_or_default()
+    fetch_json(
+        "https://api.frankfurter.dev/v1/currencies",
+        "frankfurter_fx",
+    )
+    .ok()
+    .and_then(|payload| payload.as_object().cloned())
+    .map(|rows| rows.keys().take(limit.max(1)).cloned().collect())
+    .unwrap_or_default()
 }
 
 fn discover_kraken_assets(limit: usize) -> Vec<String> {
@@ -2992,37 +3886,58 @@ fn discover_kraken_assets(limit: usize) -> Vec<String> {
 }
 
 fn discover_coinbase_assets(limit: usize) -> Vec<String> {
-    fetch_json("https://api.exchange.coinbase.com/products", "coinbase_spot")
-        .ok()
-        .and_then(|payload| payload.as_array().cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|row| row.get("id").and_then(Value::as_str).map(ToString::to_string))
-        .take(limit.max(1))
-        .collect()
+    fetch_json(
+        "https://api.exchange.coinbase.com/products",
+        "coinbase_spot",
+    )
+    .ok()
+    .and_then(|payload| payload.as_array().cloned())
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|row| {
+        row.get("id")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+    .take(limit.max(1))
+    .collect()
 }
 
 fn discover_binance_futures_assets(limit: usize) -> Vec<String> {
-    fetch_json("https://fapi.binance.com/fapi/v1/exchangeInfo", "binance_futures")
-        .ok()
-        .and_then(|payload| payload.get("symbols").and_then(Value::as_array).cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|row| row.get("symbol").and_then(Value::as_str).map(ToString::to_string))
-        .take(limit.max(1))
-        .collect()
+    fetch_json(
+        "https://fapi.binance.com/fapi/v1/exchangeInfo",
+        "binance_futures",
+    )
+    .ok()
+    .and_then(|payload| payload.get("symbols").and_then(Value::as_array).cloned())
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|row| {
+        row.get("symbol")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+    .take(limit.max(1))
+    .collect()
 }
 
-    fn discover_binance_spot_assets(limit: usize) -> Vec<String> {
-        fetch_json("https://api.binance.com/api/v3/exchangeInfo", "binance_spot")
-        .ok()
-        .and_then(|payload| payload.get("symbols").and_then(Value::as_array).cloned())
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|row| row.get("symbol").and_then(Value::as_str).map(ToString::to_string))
-        .take(limit.max(1))
-        .collect()
-    }
+fn discover_binance_spot_assets(limit: usize) -> Vec<String> {
+    fetch_json(
+        "https://api.binance.com/api/v3/exchangeInfo",
+        "binance_spot",
+    )
+    .ok()
+    .and_then(|payload| payload.get("symbols").and_then(Value::as_array).cloned())
+    .unwrap_or_default()
+    .into_iter()
+    .filter_map(|row| {
+        row.get("symbol")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
+    .take(limit.max(1))
+    .collect()
+}
 
 fn discover_bybit_assets(limit: usize) -> Vec<String> {
     fetch_json(
@@ -3030,10 +3945,20 @@ fn discover_bybit_assets(limit: usize) -> Vec<String> {
         "bybit_linear",
     )
     .ok()
-    .and_then(|payload| payload.get("result").and_then(|row| row.get("list")).and_then(Value::as_array).cloned())
+    .and_then(|payload| {
+        payload
+            .get("result")
+            .and_then(|row| row.get("list"))
+            .and_then(Value::as_array)
+            .cloned()
+    })
     .unwrap_or_default()
     .into_iter()
-    .filter_map(|row| row.get("symbol").and_then(Value::as_str).map(ToString::to_string))
+    .filter_map(|row| {
+        row.get("symbol")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+    })
     .take(limit.max(1))
     .collect()
 }
@@ -3070,11 +3995,26 @@ fn parse_ingest_options(args: Vec<String>) -> Result<IngestOptions, Box<dyn std:
             "--asset-type" => {
                 options.asset_type = next_value(&args, &mut index, flag)?.to_string();
             }
+            "--asset-class" => {
+                options.asset_class = Some(next_value(&args, &mut index, flag)?.to_string());
+            }
             "--timeframe" => {
                 options.timeframe = next_value(&args, &mut index, flag)?.to_string();
             }
             "--limit" => {
                 options.limit = next_value(&args, &mut index, flag)?.parse::<usize>()?;
+            }
+            "--explain-source" => {
+                options.explain_source = true;
+            }
+            "--force-source" => {
+                options.force_source = true;
+            }
+            "--force-asset-class" => {
+                options.force_asset_class = true;
+            }
+            "--disable-source-mapping" => {
+                options.disable_source_mapping = true;
             }
             "--record-root" => {
                 options.record_root = Some(next_value(&args, &mut index, flag)?.to_string());

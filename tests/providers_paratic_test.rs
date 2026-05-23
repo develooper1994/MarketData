@@ -1,6 +1,8 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -11,7 +13,10 @@ struct TestParaticAdapter {
 
 impl TestParaticAdapter {
     fn new(base: String) -> Self {
-        Self { base, client: reqwest::blocking::Client::new() }
+        Self {
+            base,
+            client: reqwest::blocking::Client::new(),
+        }
     }
 }
 
@@ -22,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestParaticAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
         for ds in datasets {
             if ds == "tick" {
@@ -48,16 +58,26 @@ fn paratic_tick_fetch_via_mock() {
     let body = serde_json::json!({"last": 111.1});
 
     let _m = server.mock(|when, then| {
-        when.method(GET).path("/API/g.php").query_param("symbol", "BTCUSDT");
+        when.method(GET)
+            .path("/API/g.php")
+            .query_param("symbol", "BTCUSDT");
         then.status(200)
             .header("Content-Type", "application/json")
             .body(body.to_string());
     });
 
     let mut registry = SourceAdapterRegistry::default();
-    registry.register("paratic", Arc::new(TestParaticAdapter::new(server.base_url())));
+    registry.register(
+        "paratic",
+        Arc::new(TestParaticAdapter::new(server.base_url())),
+    );
 
-    let hub = DataHub::with_components(Box::new(InMemoryStorage::default()), ManifestProvenanceTracker::new(None::<&str>), registry, market_data::streaming::StreamingAdapterRegistry::default());
+    let hub = DataHub::with_components(
+        Box::new(InMemoryStorage::default()),
+        ManifestProvenanceTracker::new(None::<&str>),
+        registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
+    );
     let etl = Etl::new(hub)
         .source("paratic")
         .select_assets(vec!["BTCUSDT".to_string()])

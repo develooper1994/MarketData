@@ -39,8 +39,16 @@ impl Etl {
             .symbols
             .iter()
             .map(|symbol| {
-                self.hub
-                    .ingest(&source, symbol, self.datasets.clone(), "1m", 500, false)
+                self.hub.ingest(
+                    &source,
+                    symbol,
+                    self.datasets.clone(),
+                    "1m",
+                    500,
+                    false,
+                    None,
+                    false,
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(self)

@@ -22,13 +22,17 @@ impl RawSourceAdapter for FintablesAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out = HashMap::new();
 
         // Fintables scraping is opt-in via ENABLE_SCRAPING_PROVIDERS env var
-        let scraping_enabled = std::env::var("ENABLE_SCRAPING_PROVIDERS").unwrap_or_default() == "true";
+        let scraping_enabled =
+            std::env::var("ENABLE_SCRAPING_PROVIDERS").unwrap_or_default() == "true";
 
-        let base = std::env::var("FINTABLES_BASE_URL").unwrap_or_else(|_| "https://fintables.com".to_string());
+        let base = std::env::var("FINTABLES_BASE_URL")
+            .unwrap_or_else(|_| "https://fintables.com".to_string());
         let base = base.trim_end_matches('/');
 
         for ds in datasets {

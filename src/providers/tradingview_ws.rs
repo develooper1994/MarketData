@@ -3,9 +3,12 @@ use crate::streaming::StreamingSourceAdapter;
 use rand::Rng;
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs::{create_dir_all, OpenOptions};
+use std::fs::{OpenOptions, create_dir_all};
 use std::io::Write;
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
+};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -80,7 +83,10 @@ impl StreamingSourceAdapter for TradingViewStreamingAdapter {
         if let Some((handle, stop_flag)) = handles.remove(symbol) {
             stop_flag.store(true, Ordering::Relaxed);
             if let Err(e) = handle.join() {
-                return Err(ProviderError::Other(format!("failed to join stream thread: {:?}", e)));
+                return Err(ProviderError::Other(format!(
+                    "failed to join stream thread: {:?}",
+                    e
+                )));
             }
         }
         Ok(())

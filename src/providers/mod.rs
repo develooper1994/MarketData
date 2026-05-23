@@ -1,14 +1,14 @@
-pub mod errors;
-pub mod yahoo;
 pub mod btcturk;
-pub mod kap;
-pub mod fintables;
-pub mod tradingview;
-pub mod tradingview_ws;
-pub mod paratic;
 pub mod dovizcom;
+pub mod errors;
+pub mod fintables;
+pub mod kap;
+pub mod paratic;
 #[cfg(feature = "tefas")]
 pub mod tefas;
+pub mod tradingview;
+pub mod tradingview_ws;
+pub mod yahoo;
 
 use crate::hub::SourceAdapterRegistry;
 use std::sync::Arc;
@@ -21,9 +21,15 @@ pub fn register_live_providers(registry: &mut SourceAdapterRegistry) {
     registry.register("yahoo_unofficial", yahoo_adapter.clone());
     registry.register("btcturk", Arc::new(btcturk::BtcturkAdapter::default()));
     registry.register("kap", Arc::new(kap::KapAdapter::default()));
-    registry.register("fintables", Arc::new(fintables::FintablesAdapter::default()));
+    registry.register(
+        "fintables",
+        Arc::new(fintables::FintablesAdapter::default()),
+    );
     // New scaffolds (minimal implementations)
-    registry.register("tradingview", Arc::new(tradingview::TradingViewAdapter::default()));
+    registry.register(
+        "tradingview",
+        Arc::new(tradingview::TradingViewAdapter::default()),
+    );
     // Streaming adapter (POC)
     // Note: `tradingview_ws` provides a streaming POC that emits synthetic ticks when no
     // real websocket URL is configured via `TRADINGVIEW_WS_URL`.
@@ -44,7 +50,10 @@ pub fn register_live_providers(registry: &mut SourceAdapterRegistry) {
     #[cfg(not(feature = "tefas"))]
     {
         // When the feature is not compiled in, print a terse debug note if debugging is enabled.
-        if std::env::var("TEFAS_DEBUG").map(|v| v == "1").unwrap_or(false) {
+        if std::env::var("TEFAS_DEBUG")
+            .map(|v| v == "1")
+            .unwrap_or(false)
+        {
             eprintln!("TEFAS provider not compiled in (feature \"tefas\" not enabled)");
         }
     }

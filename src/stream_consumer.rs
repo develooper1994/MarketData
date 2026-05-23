@@ -1,6 +1,6 @@
 use crate::hub::{DataHub, HubError};
 use serde_json::Value;
-use std::fs::{read_dir, create_dir_all, File};
+use std::fs::{File, create_dir_all, read_dir};
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
@@ -10,7 +10,11 @@ use std::path::Path;
 /// lines, collects JSON items into a `tick` raw dataset and calls
 /// `hub.ingest_from_raw_with_asset_type(...)`. Processed files are moved to a
 /// `processed/` subdirectory to avoid re-processing.
-pub fn consume_stream_files(hub: &mut DataHub, streams_dir: &str, store: bool) -> Result<usize, HubError> {
+pub fn consume_stream_files(
+    hub: &mut DataHub,
+    streams_dir: &str,
+    store: bool,
+) -> Result<usize, HubError> {
     let dir = Path::new(streams_dir);
     if !dir.exists() {
         return Ok(0);
@@ -18,7 +22,10 @@ pub fn consume_stream_files(hub: &mut DataHub, streams_dir: &str, store: bool) -
 
     let processed_dir = dir.join("processed");
     if let Err(e) = create_dir_all(&processed_dir) {
-        return Err(HubError::Storage(std::io::Error::new(std::io::ErrorKind::Other, format!("failed to create processed dir: {}", e))));
+        return Err(HubError::Storage(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("failed to create processed dir: {}", e),
+        )));
     }
 
     let mut ingested_files = 0usize;
@@ -26,12 +33,22 @@ pub fn consume_stream_files(hub: &mut DataHub, streams_dir: &str, store: bool) -
     for entry in read_dir(dir).map_err(|e| HubError::Storage(e))? {
         let entry = entry.map_err(|e| HubError::Storage(e))?;
         let path = entry.path();
-        if !path.is_file() { continue; }
+        if !path.is_file() {
+            continue;
+        }
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-            if ext != "jsonl" { continue; }
-        } else { continue; }
+            if ext != "jsonl" {
+                continue;
+            }
+        } else {
+            continue;
+        }
 
-        let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+        let file_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_string();
         // Expect pattern like tradingview_<symbol>.jsonl
         let symbol = file_name
             .trim_end_matches(".jsonl")
@@ -45,11 +62,15 @@ pub fn consume_stream_files(hub: &mut DataHub, streams_dir: &str, store: bool) -
         let mut items = Vec::new();
         for line_res in reader.lines() {
             if let Ok(line) = line_res {
-                if line.trim().is_empty() { continue; }
+                if line.trim().is_empty() {
+                    continue;
+                }
                 if let Ok(json_v) = serde_json::from_str::<Value>(&line) {
                     match json_v {
                         Value::Array(arr) => {
-                            for it in arr { items.push(it); }
+                            for it in arr {
+                                items.push(it);
+                            }
                         }
                         other => items.push(other),
                     }
@@ -68,7 +89,16 @@ pub fn consume_stream_files(hub: &mut DataHub, streams_dir: &str, store: bool) -
         raw.insert("tick".to_string(), Value::Array(items));
 
         // ingest synchronously
-        let _res = hub.ingest_from_raw_with_asset_type("tradingview", &symbol, vec!["tick".to_string()], raw, store, "multi_asset")?;
+        let _res = hub.ingest_from_raw_with_asset_type(
+            "tradingview",
+            &symbol,
+            vec!["tick".to_string()],
+            raw,
+            store,
+            "multi_asset",
+            None,
+            false,
+        )?;
 
         // move processed file
         let target = processed_dir.join(format!("{}", file_name));

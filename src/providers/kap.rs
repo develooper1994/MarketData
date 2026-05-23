@@ -22,10 +22,13 @@ impl RawSourceAdapter for KapAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out = HashMap::new();
 
-        let base = std::env::var("KAP_BASE_URL").unwrap_or_else(|_| "https://www.kap.org.tr".to_string());
+        let base =
+            std::env::var("KAP_BASE_URL").unwrap_or_else(|_| "https://www.kap.org.tr".to_string());
         let base = base.trim_end_matches('/');
 
         for ds in datasets {

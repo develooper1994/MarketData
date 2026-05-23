@@ -1,6 +1,8 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -25,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestYahooAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
 
         for ds in datasets {
@@ -53,15 +60,31 @@ impl market_data::hub::RawSourceAdapter for TestYahooAdapter {
                     out.insert(ds.clone(), Value::Array(vec![Value::Object(record)]));
                 }
             } else if ds == "kline" {
-                let url = format!("{}/v8/finance/chart/{}?interval=1m&range=1d", self.base, symbol);
+                let url = format!(
+                    "{}/v8/finance/chart/{}?interval=1m&range=1d",
+                    self.base, symbol
+                );
                 let resp = self.client.get(&url).send()?;
                 let json_v = resp.json::<Value>()?;
-                if let Some(res) = json_v.get("chart").and_then(|c| c.get("result")).and_then(|r| r.get(0)) {
+                if let Some(res) = json_v
+                    .get("chart")
+                    .and_then(|c| c.get("result"))
+                    .and_then(|r| r.get(0))
+                {
                     if let (Some(ts_arr), Some(ind)) = (
                         res.get("timestamp"),
-                        res.get("indicators").and_then(|i| i.get("quote")).and_then(|q| q.get(0)),
+                        res.get("indicators")
+                            .and_then(|i| i.get("quote"))
+                            .and_then(|q| q.get(0)),
                     ) {
-                        if let (Some(tss), Some(open), Some(high), Some(low), Some(close), Some(volume)) = (
+                        if let (
+                            Some(tss),
+                            Some(open),
+                            Some(high),
+                            Some(low),
+                            Some(close),
+                            Some(volume),
+                        ) = (
                             ts_arr.as_array(),
                             ind.get("open").and_then(|v| v.as_array()),
                             ind.get("high").and_then(|v| v.as_array()),
@@ -97,7 +120,8 @@ impl market_data::hub::RawSourceAdapter for TestYahooAdapter {
 fn yahoo_tick_fetch_via_mock() {
     let server = MockServer::start();
 
-    let quote_body = std::fs::read_to_string("tests/fixtures/yahoo_quote.json").expect("read fixture");
+    let quote_body =
+        std::fs::read_to_string("tests/fixtures/yahoo_quote.json").expect("read fixture");
 
     let _m = server.mock(|when, then| {
         when.method(GET)
@@ -109,10 +133,7 @@ fn yahoo_tick_fetch_via_mock() {
     });
 
     let mut registry = SourceAdapterRegistry::default();
-    registry.register(
-        "yahoo",
-        Arc::new(TestYahooAdapter::new(server.base_url())),
-    );
+    registry.register("yahoo", Arc::new(TestYahooAdapter::new(server.base_url())));
 
     let hub = DataHub::with_components(
         Box::new(InMemoryStorage::default()),
@@ -137,7 +158,8 @@ fn yahoo_tick_fetch_via_mock() {
 fn yahoo_chart_fetch_via_mock() {
     let server = MockServer::start();
 
-    let chart_body = std::fs::read_to_string("tests/fixtures/yahoo_chart.json").expect("read fixture");
+    let chart_body =
+        std::fs::read_to_string("tests/fixtures/yahoo_chart.json").expect("read fixture");
 
     let _m = server.mock(|when, then| {
         when.method(GET)
@@ -150,10 +172,7 @@ fn yahoo_chart_fetch_via_mock() {
     });
 
     let mut registry = SourceAdapterRegistry::default();
-    registry.register(
-        "yahoo",
-        Arc::new(TestYahooAdapter::new(server.base_url())),
-    );
+    registry.register("yahoo", Arc::new(TestYahooAdapter::new(server.base_url())));
 
     let hub = DataHub::with_components(
         Box::new(InMemoryStorage::default()),

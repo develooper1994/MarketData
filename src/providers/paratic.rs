@@ -22,10 +22,13 @@ impl RawSourceAdapter for ParaticAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out = HashMap::new();
 
-        let base = std::env::var("PARATIC_BASE_URL").unwrap_or_else(|_| "https://piyasa.paratic.com".to_string());
+        let base = std::env::var("PARATIC_BASE_URL")
+            .unwrap_or_else(|_| "https://piyasa.paratic.com".to_string());
         let base = base.trim_end_matches('/');
 
         for ds in datasets {

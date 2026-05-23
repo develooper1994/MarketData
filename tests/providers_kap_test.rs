@@ -1,6 +1,8 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -11,7 +13,10 @@ struct TestKapAdapter {
 
 impl TestKapAdapter {
     fn new(base: String) -> Self {
-        Self { base, client: reqwest::blocking::Client::new() }
+        Self {
+            base,
+            client: reqwest::blocking::Client::new(),
+        }
     }
 }
 
@@ -22,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestKapAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
         for ds in datasets {
             if ds == "news" || ds == "corporate_actions" || ds == "fundamentals" {
@@ -43,16 +53,26 @@ impl market_data::hub::RawSourceAdapter for TestKapAdapter {
 #[test]
 fn kap_news_fetch_via_mock() {
     let server = MockServer::start();
-    let body = std::fs::read_to_string("tests/fixtures/kap_disclosures.json").expect("read fixture");
+    let body =
+        std::fs::read_to_string("tests/fixtures/kap_disclosures.json").expect("read fixture");
     let _m = server.mock(|when, then| {
-        when.method(GET).path("/tr/api/disclosures").query_param("company", "BTCUSDT");
-        then.status(200).header("Content-Type", "application/json").body(body);
+        when.method(GET)
+            .path("/tr/api/disclosures")
+            .query_param("company", "BTCUSDT");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .body(body);
     });
 
     let mut registry = SourceAdapterRegistry::default();
     registry.register("kap", Arc::new(TestKapAdapter::new(server.base_url())));
 
-    let hub = DataHub::with_components(Box::new(InMemoryStorage::default()), ManifestProvenanceTracker::new(None::<&str>), registry, market_data::streaming::StreamingAdapterRegistry::default());
+    let hub = DataHub::with_components(
+        Box::new(InMemoryStorage::default()),
+        ManifestProvenanceTracker::new(None::<&str>),
+        registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
+    );
     let etl = Etl::new(hub)
         .source("kap")
         .select_assets(vec!["BTCUSDT".to_string()])

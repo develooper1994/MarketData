@@ -1,6 +1,8 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -25,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestBtcturkAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
 
         for ds in datasets {

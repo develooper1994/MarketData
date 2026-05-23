@@ -1,6 +1,8 @@
 use httpmock::Method::GET;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -11,7 +13,10 @@ struct TestDovizAdapter {
 
 impl TestDovizAdapter {
     fn new(base: String) -> Self {
-        Self { base, client: reqwest::blocking::Client::new() }
+        Self {
+            base,
+            client: reqwest::blocking::Client::new(),
+        }
     }
 }
 
@@ -22,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestDovizAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
         for ds in datasets {
             if ds == "tick" {
@@ -54,9 +64,17 @@ fn dovizcom_tick_fetch_via_mock() {
     });
 
     let mut registry = SourceAdapterRegistry::default();
-    registry.register("dovizcom", Arc::new(TestDovizAdapter::new(server.base_url())));
+    registry.register(
+        "dovizcom",
+        Arc::new(TestDovizAdapter::new(server.base_url())),
+    );
 
-    let hub = DataHub::with_components(Box::new(InMemoryStorage::default()), ManifestProvenanceTracker::new(None::<&str>), registry, market_data::streaming::StreamingAdapterRegistry::default());
+    let hub = DataHub::with_components(
+        Box::new(InMemoryStorage::default()),
+        ManifestProvenanceTracker::new(None::<&str>),
+        registry,
+        market_data::streaming::StreamingAdapterRegistry::default(),
+    );
     let etl = Etl::new(hub)
         .source("dovizcom")
         .select_assets(vec!["BTCUSDT".to_string()])

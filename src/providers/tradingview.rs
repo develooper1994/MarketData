@@ -19,9 +19,11 @@ impl RawSourceAdapter for TradingViewAdapter {
     fn fetch_raw(
         &self,
         _symbol: &str,
-        _datasets: &[String],
+        datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         // Minimal scaffold: TradingView is primarily a JS/websocket driven source.
         // Implementations should be added later. For now return empty map.

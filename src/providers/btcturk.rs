@@ -22,10 +22,13 @@ impl RawSourceAdapter for BtcturkAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out = HashMap::new();
 
-        let base = std::env::var("BTCTURK_BASE_URL").unwrap_or_else(|_| "https://api.btcturk.com".to_string());
+        let base = std::env::var("BTCTURK_BASE_URL")
+            .unwrap_or_else(|_| "https://api.btcturk.com".to_string());
         let base = base.trim_end_matches('/');
 
         for ds in datasets {
@@ -51,7 +54,10 @@ impl RawSourceAdapter for BtcturkAdapter {
                                 map.insert("timestamp_ms".to_string(), ts.clone());
                             }
                             map.insert("source".to_string(), Value::String("btcturk".to_string()));
-                            out.insert(canonical.to_string(), Value::Array(vec![Value::Object(map)]));
+                            out.insert(
+                                canonical.to_string(),
+                                Value::Array(vec![Value::Object(map)]),
+                            );
                         }
                     }
                 }

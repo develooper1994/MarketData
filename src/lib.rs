@@ -1,16 +1,23 @@
+pub mod candidates;
 pub mod capabilities;
 pub mod contracts;
 pub mod etl;
+pub mod heuristics;
 pub mod hub;
-pub mod providers;
-pub mod streaming;
-pub mod stream_consumer;
+pub mod matcher;
 pub mod normalize;
 pub mod provenance;
+pub mod providers;
 pub mod quality;
 pub mod query;
+pub mod source_health;
+pub mod source_registry;
+pub mod source_selector;
 pub mod storage;
+pub mod stream_consumer;
+pub mod streaming;
 
+pub use crate::source_registry::{SourceMetadata, SourceRegistry};
 pub use capabilities::{
     SourceCapability, all_capabilities, canonical_dataset_name, capability_map,
 };

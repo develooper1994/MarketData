@@ -22,11 +22,14 @@ impl RawSourceAdapter for YahooAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out: HashMap<String, Value> = HashMap::new();
 
         // Allow tests to override base URL
-        let base = std::env::var("YAHOO_BASE_URL").unwrap_or_else(|_| "https://query1.finance.yahoo.com".to_string());
+        let base = std::env::var("YAHOO_BASE_URL")
+            .unwrap_or_else(|_| "https://query1.finance.yahoo.com".to_string());
         let base = base.trim_end_matches('/');
 
         for ds in datasets {
@@ -53,7 +56,10 @@ impl RawSourceAdapter for YahooAdapter {
                             }
                         }
                         record.insert("source".to_string(), Value::String("yahoo".to_string()));
-                        out.insert(canonical.to_string(), Value::Array(vec![Value::Object(record)]));
+                        out.insert(
+                            canonical.to_string(),
+                            Value::Array(vec![Value::Object(record)]),
+                        );
                     }
                 }
                 "kline" => {
@@ -67,9 +73,18 @@ impl RawSourceAdapter for YahooAdapter {
                     {
                         if let (Some(ts_arr), Some(ind)) = (
                             res.get("timestamp"),
-                            res.get("indicators").and_then(|i| i.get("quote")).and_then(|q| q.get(0)),
+                            res.get("indicators")
+                                .and_then(|i| i.get("quote"))
+                                .and_then(|q| q.get(0)),
                         ) {
-                            if let (Some(tss), Some(open), Some(high), Some(low), Some(close), Some(volume)) = (
+                            if let (
+                                Some(tss),
+                                Some(open),
+                                Some(high),
+                                Some(low),
+                                Some(close),
+                                Some(volume),
+                            ) = (
                                 ts_arr.as_array(),
                                 ind.get("open").and_then(|v| v.as_array()),
                                 ind.get("high").and_then(|v| v.as_array()),

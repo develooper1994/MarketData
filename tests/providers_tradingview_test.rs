@@ -1,6 +1,8 @@
 use httpmock::Method::POST;
 use httpmock::MockServer;
-use market_data::{DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry};
+use market_data::{
+    DataHub, Etl, InMemoryStorage, ManifestProvenanceTracker, SourceAdapterRegistry,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -11,7 +13,10 @@ struct TestTradingViewAdapter {
 
 impl TestTradingViewAdapter {
     fn new(base: String) -> Self {
-        Self { base, client: reqwest::blocking::Client::new() }
+        Self {
+            base,
+            client: reqwest::blocking::Client::new(),
+        }
     }
 }
 
@@ -22,7 +27,12 @@ impl market_data::hub::RawSourceAdapter for TestTradingViewAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<std::collections::HashMap<String, Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<
+        std::collections::HashMap<String, Value>,
+        market_data::providers::errors::ProviderError,
+    > {
         let mut out = std::collections::HashMap::new();
         for ds in datasets {
             if ds == "tick" {
@@ -36,7 +46,10 @@ impl market_data::hub::RawSourceAdapter for TestTradingViewAdapter {
                         if let Some(last) = item.get("last") {
                             map.insert("last".to_string(), last.clone());
                         }
-                        map.insert("source".to_string(), Value::String("tradingview".to_string()));
+                        map.insert(
+                            "source".to_string(),
+                            Value::String("tradingview".to_string()),
+                        );
                         out.insert(ds.clone(), Value::Array(vec![Value::Object(map)]));
                     }
                 }

@@ -15,7 +15,10 @@ impl RawSourceAdapter for MockAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
-    ) -> Result<HashMap<String, serde_json::Value>, market_data::providers::errors::ProviderError> {
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
+    ) -> Result<HashMap<String, serde_json::Value>, market_data::providers::errors::ProviderError>
+    {
         let mut out = HashMap::new();
         for dataset in datasets {
             if dataset == "kline" {
@@ -52,6 +55,8 @@ fn ingest_from_raw_builds_records_and_provenance() {
                 json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
             )]),
             true,
+            None,
+            false,
         )
         .expect("ingestion should succeed");
 
@@ -88,6 +93,8 @@ fn quality_detects_non_monotonic_kline_timestamps() {
                     [1716200000001_i64, "10", "11", "9", "10.5", "42"]
                 ]),
             )]),
+            false,
+            None,
             false,
         )
         .expect("ingestion should succeed");
@@ -146,6 +153,8 @@ fn default_registry_offline_adapter_supports_fetch_and_discovery() {
             "1m",
             10,
             false,
+            None,
+            false,
         )
         .expect("offline adapter ingest should succeed");
     assert_eq!(result.dataset_coverage.get("kline"), Some(&1));
@@ -174,6 +183,8 @@ fn ingest_from_raw_resolves_ohlcv_alias_to_kline() {
                 "ohlcv".to_string(),
                 json!([[1716200000000_i64, "10", "11", "9", "10.5", "42"]]),
             )]),
+            false,
+            None,
             false,
         )
         .expect("ingestion should succeed");

@@ -15,7 +15,11 @@ pub trait StreamingSourceAdapter: Send + Sync {
     /// Start streaming for the given `symbol` and datasets. Implementations
     /// should spawn tasks and begin emitting messages to their internal
     /// consumers (or external queues) and return Ok when the stream is active.
-    fn start_stream(&self, symbol: &str, datasets: &[String]) -> Result<(), crate::providers::errors::ProviderError>;
+    fn start_stream(
+        &self,
+        symbol: &str,
+        datasets: &[String],
+    ) -> Result<(), crate::providers::errors::ProviderError>;
 
     /// Stop streaming for the given symbol. Implementations should stop any
     /// background tasks and release resources.
@@ -33,7 +37,11 @@ pub struct StreamingAdapterRegistry {
 }
 
 impl StreamingAdapterRegistry {
-    pub fn register(&mut self, source: impl Into<String>, adapter: Arc<dyn StreamingSourceAdapter>) {
+    pub fn register(
+        &mut self,
+        source: impl Into<String>,
+        adapter: Arc<dyn StreamingSourceAdapter>,
+    ) {
         self.adapters.insert(source.into(), adapter);
     }
 
@@ -44,6 +52,8 @@ impl StreamingAdapterRegistry {
 
 impl Default for StreamingAdapterRegistry {
     fn default() -> Self {
-        Self { adapters: HashMap::new() }
+        Self {
+            adapters: HashMap::new(),
+        }
     }
 }

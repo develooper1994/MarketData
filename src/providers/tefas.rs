@@ -1,15 +1,16 @@
 use crate::hub::RawSourceAdapter;
 use crate::providers::errors::ProviderError;
+use chrono::{NaiveDate, TimeZone, Utc};
+use once_cell::sync::Lazy;
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use chrono::{NaiveDate, Utc, TimeZone};
-use tefas::{AppConfig, TefasClient, QueryBatchRequest, DEFAULT_USER_AGENT};
 use tefas::QueryOperationName;
-use once_cell::sync::Lazy;
+use tefas::{AppConfig, DEFAULT_USER_AGENT, QueryBatchRequest, TefasClient};
 use tokio::runtime::Runtime;
 
 // Shared runtime to avoid creating a new Runtime per call which is expensive
-static SHARED_RT: Lazy<Runtime> = Lazy::new(|| Runtime::new().expect("failed to create tokio runtime"));
+static SHARED_RT: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new().expect("failed to create tokio runtime"));
 
 pub struct TefasAdapter;
 
@@ -23,34 +24,51 @@ impl TefasAdapter {
     fn build_client(&self) -> Result<TefasClient, ProviderError> {
         let mut cfg = AppConfig::with_defaults();
         if let Ok(env_base) = std::env::var("TEFAS_BASE_URL") {
-            if !env_base.trim().is_empty() { cfg.base_url = env_base; }
+            if !env_base.trim().is_empty() {
+                cfg.base_url = env_base;
+            }
         }
         // Keep CLI-like UA for compatibility with TEFAS WAF behaviour
         cfg.auth.user_agent = DEFAULT_USER_AGENT.to_string();
 
         let rt = &*SHARED_RT;
-        rt.block_on(async { TefasClient::new(cfg).map_err(|e| ProviderError::Other(format!("tefas client init: {}", e))) })
+        rt.block_on(async {
+            TefasClient::new(cfg)
+                .map_err(|e| ProviderError::Other(format!("tefas client init: {}", e)))
+        })
     }
 
     fn query_fon_fiyat(&self, client: &TefasClient, symbol: &str) -> Result<Value, ProviderError> {
         let rt = &*SHARED_RT;
         let req = QueryBatchRequest::new(vec![QueryOperationName::new("fonFiyatBilgiGetir")], None);
-        let overrides = vec![("fonKodu".to_string(), Value::String(symbol.to_string())), ("periyod".to_string(), Value::String("1".to_string()))];
-        rt.block_on(async { client.query_by_names(req, overrides, None).await.map_err(|e| ProviderError::Other(format!("tefas query error: {}", e))) })
+        let overrides = vec![
+            ("fonKodu".to_string(), Value::String(symbol.to_string())),
+            ("periyod".to_string(), Value::String("1".to_string())),
+        ];
+        rt.block_on(async {
+            client
+                .query_by_names(req, overrides, None)
+                .await
+                .map_err(|e| ProviderError::Other(format!("tefas query error: {}", e)))
+        })
     }
 }
 
 impl RawSourceAdapter for TefasAdapter {
     fn fetch_raw(
         &self,
-        symbol: &str,
+        _symbol: &str,
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, ProviderError> {
         let mut out = HashMap::new();
 
-        let tefas_debug = std::env::var("TEFAS_DEBUG").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        let tefas_debug = std::env::var("TEFAS_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
         let write_parity = |symbol: &str, kind: &str, val: &Value| {
             if tefas_debug {
                 let dir = format!("artifacts/tefas_parity/{}", symbol);
@@ -102,13 +120,28 @@ impl RawSourceAdapter for TefasAdapter {
                         }
                     };
                     write_parity(symbol, "lib_raw", &v);
-                    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+                    if let Some(arr) = v
+                        .get("fonFiyatBilgiGetir")
+                        .and_then(|o| o.get("resultList"))
+                        .and_then(|r| r.as_array())
+                    {
                         let mut out_arr = Vec::new();
                         for item in arr {
                             if let Some(obj) = item.as_object() {
-                                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok().map(|d| d.and_hms_opt(0, 0, 0).unwrap()).map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis()).unwrap_or(0_i64);
-                                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                                let tarih = obj
+                                    .get("tarih")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default();
+                                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                                    .ok()
+                                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                                    .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                                    .unwrap_or(0_i64);
+                                let price = obj
+                                    .get("fiyat")
+                                    .cloned()
+                                    .or_else(|| obj.get("price").cloned())
+                                    .unwrap_or(Value::Null);
                                 let mut rec = serde_json::Map::new();
                                 rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
                                 rec.insert("open".to_string(), price.clone());
@@ -141,17 +174,35 @@ impl RawSourceAdapter for TefasAdapter {
                         }
                     };
                     write_parity(symbol, "lib_raw", &v);
-                    if let Some(arr) = v.get("fonFiyatBilgiGetir").and_then(|o| o.get("resultList")).and_then(|r| r.as_array()) {
+                    if let Some(arr) = v
+                        .get("fonFiyatBilgiGetir")
+                        .and_then(|o| o.get("resultList"))
+                        .and_then(|r| r.as_array())
+                    {
                         if let Some(latest) = arr.last() {
                             if let Some(obj) = latest.as_object() {
-                                let tarih = obj.get("tarih").and_then(|v| v.as_str()).unwrap_or_default();
-                                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d").ok().map(|d| d.and_hms_opt(0, 0, 0).unwrap()).map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis()).unwrap_or(0_i64);
-                                let price = obj.get("fiyat").cloned().or_else(|| obj.get("price").cloned()).unwrap_or(Value::Null);
+                                let tarih = obj
+                                    .get("tarih")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or_default();
+                                let ts_ms = NaiveDate::parse_from_str(tarih, "%Y-%m-%d")
+                                    .ok()
+                                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                                    .map(|ndt| Utc.from_utc_datetime(&ndt).timestamp_millis())
+                                    .unwrap_or(0_i64);
+                                let price = obj
+                                    .get("fiyat")
+                                    .cloned()
+                                    .or_else(|| obj.get("price").cloned())
+                                    .unwrap_or(Value::Null);
                                 let mut rec = serde_json::Map::new();
                                 rec.insert("timestamp_ms".to_string(), Value::from(ts_ms));
                                 rec.insert("last".to_string(), price.clone());
                                 rec.insert("price".to_string(), price);
-                                out.insert(canonical.to_string(), Value::Array(vec![Value::Object(rec)]));
+                                out.insert(
+                                    canonical.to_string(),
+                                    Value::Array(vec![Value::Object(rec)]),
+                                );
                             } else {
                                 out.insert(canonical.to_string(), json!([]));
                             }

@@ -1,14 +1,20 @@
 use crate::capabilities::canonical_dataset_name;
+use crate::capabilities::capability_map;
 use crate::contracts::{DataRequest, IngestResult};
 use crate::normalize::{normalize_dataset, to_data_records};
 use crate::provenance::ManifestProvenanceTracker;
 use crate::quality::CanonicalDataQuality;
+use crate::source_health::SourceHealth;
+use crate::source_registry::SourceRegistry;
+use crate::source_selector::SourceSelector;
 use crate::storage::{InMemoryStorage, StorageBackend};
+use crate::streaming::StreamingAdapterRegistry;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
+use std::env;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
-use crate::streaming::StreamingAdapterRegistry;
+use std::time::Duration;
 
 pub trait RawSourceAdapter: Send + Sync {
     fn fetch_raw(
@@ -17,6 +23,8 @@ pub trait RawSourceAdapter: Send + Sync {
         datasets: &[String],
         timeframe: &str,
         limit: usize,
+        requested_asset_class: Option<&str>,
+        force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, crate::providers::errors::ProviderError>;
 
     fn discover_assets(&self, _limit: usize) -> Vec<String> {
@@ -30,11 +38,65 @@ pub struct SourceAdapterRegistry {
 
 impl SourceAdapterRegistry {
     pub fn register(&mut self, source: impl Into<String>, adapter: Arc<dyn RawSourceAdapter>) {
-        self.adapters.insert(source.into(), adapter);
+        // Wrap adapters with a small enforcing wrapper that knows the source id.
+        // This allows adapter-level optional enforcement of `requested_asset_class`
+        // when `force_asset_class` is set. Hub-level enforcement remains the
+        // primary gate, but this wrapper provides defense-in-depth for direct
+        // adapter calls and keeps provider implementations simple.
+        let source_str = source.into();
+        let wrapper = AdapterWrapper {
+            source: source_str.clone(),
+            inner: adapter,
+        };
+        self.adapters.insert(source_str, Arc::new(wrapper));
     }
 
     pub fn get(&self, source: &str) -> Option<Arc<dyn RawSourceAdapter>> {
         self.adapters.get(source).cloned()
+    }
+}
+
+struct AdapterWrapper {
+    source: String,
+    inner: Arc<dyn RawSourceAdapter>,
+}
+
+impl RawSourceAdapter for AdapterWrapper {
+    fn fetch_raw(
+        &self,
+        symbol: &str,
+        datasets: &[String],
+        timeframe: &str,
+        limit: usize,
+        requested_asset_class: Option<&str>,
+        force_asset_class: bool,
+    ) -> Result<HashMap<String, Value>, crate::providers::errors::ProviderError> {
+        // If the caller requested to force an asset class, and the provider
+        // does not advertise support for that class, return an empty payload
+        // so upstream logic can report an unsupported-class issue. This is a
+        // lightweight, per-adapter check using the capability map.
+        if let (Some(req_ac), true) = (requested_asset_class, force_asset_class) {
+            let caps = crate::capabilities::capability_map();
+            if let Some(cap) = caps.get(self.source.as_str()) {
+                let supports = cap.asset_classes.iter().any(|ac| ac == req_ac);
+                if !supports {
+                    return Ok(HashMap::new());
+                }
+            }
+        }
+
+        self.inner.fetch_raw(
+            symbol,
+            datasets,
+            timeframe,
+            limit,
+            requested_asset_class,
+            force_asset_class,
+        )
+    }
+
+    fn discover_assets(&self, limit: usize) -> Vec<String> {
+        self.inner.discover_assets(limit)
     }
 }
 
@@ -58,6 +120,8 @@ impl RawSourceAdapter for OfflineReferenceAdapter {
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
+        _requested_asset_class: Option<&str>,
+        _force_asset_class: bool,
     ) -> Result<HashMap<String, Value>, crate::providers::errors::ProviderError> {
         // Intentionally deterministic reference payloads for offline smoke tests
         // and bridge compatibility checks. This is a safe fallback adapter, not
@@ -174,7 +238,12 @@ impl DataHub {
     }
 
     /// Start a background streaming session for a source/symbol.
-    pub fn start_stream(&mut self, source: &str, symbol: &str, datasets: Vec<String>) -> Result<(), HubError> {
+    pub fn start_stream(
+        &mut self,
+        source: &str,
+        symbol: &str,
+        datasets: Vec<String>,
+    ) -> Result<(), HubError> {
         let adapter = self
             .streaming
             .get(source)
@@ -203,14 +272,100 @@ impl DataHub {
         timeframe: &str,
         limit: usize,
         store: bool,
+        requested_asset_class: Option<&str>,
+        force_asset_class: bool,
     ) -> Result<IngestResult, HubError> {
+        // If caller requested automatic selection, consult the registry + selector
+        let actual_source = if source == "auto" || source.is_empty() {
+            let caps = capability_map();
+            let primary_dataset = datasets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "kline".to_string());
+            let registry_path = env::var("SOURCE_METADATA_PATH").unwrap_or_else(|_| {
+                format!("{}/config/source_metadata.yaml", env!("CARGO_MANIFEST_DIR"))
+            });
+            let registry = SourceRegistry::load_from_path(&registry_path).unwrap_or_default();
+            let selector = SourceSelector::select(
+                symbol,
+                &primary_dataset,
+                &registry,
+                None,
+                None,
+                false,
+                false,
+            );
+
+            // prefer mapped capability keys that correspond to registry id
+            if let Some(chosen_reg) = selector.chosen {
+                let mut best_match: Option<String> = None;
+                for (key, _) in capability_map().into_iter() {
+                    if key == chosen_reg || key.contains(&chosen_reg) {
+                        best_match = Some(key);
+                        break;
+                    }
+                }
+                best_match.unwrap_or_else(|| "offline_fallback".to_string())
+            } else {
+                "offline_fallback".to_string()
+            }
+        } else {
+            source.to_string()
+        };
+
         let adapter = self
             .adapters
-            .get(source)
-            .ok_or_else(|| HubError::UnknownSource(source.to_string()))?;
+            .get(actual_source.as_str())
+            .ok_or_else(|| HubError::UnknownSource(actual_source.clone()))?;
 
-        let raw = adapter.fetch_raw(symbol, &datasets, timeframe, limit)?;
-        self.ingest_from_raw(source, symbol, datasets, raw, store)
+        // If the caller requested a forced asset class, ensure the chosen source
+        // actually supports that asset class according to the capability map.
+        if let (Some(req_ac), true) = (requested_asset_class, force_asset_class) {
+            let caps = capability_map();
+            if let Some(cap) = caps.get(actual_source.as_str()) {
+                let supports = cap.asset_classes.iter().any(|ac| ac == req_ac);
+                if !supports {
+                    // Short-circuit: produce an empty raw payload and a result that
+                    // contains a clear source issue indicating unsupported class.
+                    let empty_raw: HashMap<String, Value> = HashMap::new();
+                    let mut result = self.ingest_from_raw(
+                        actual_source.as_str(),
+                        symbol,
+                        datasets,
+                        empty_raw,
+                        store,
+                        requested_asset_class,
+                        force_asset_class,
+                    )?;
+                    result.source_issues.push(BTreeMap::from([
+                        ("source".to_string(), actual_source.clone()),
+                        (
+                            "reason".to_string(),
+                            format!("unsupported_asset_class:{}", req_ac),
+                        ),
+                    ]));
+                    return Ok(result);
+                }
+            }
+        }
+
+        let raw = adapter.fetch_raw(
+            symbol,
+            &datasets,
+            timeframe,
+            limit,
+            requested_asset_class,
+            force_asset_class,
+        )?;
+        self.ingest_from_raw(
+            actual_source.as_str(),
+            symbol,
+            datasets,
+            raw,
+            store,
+            requested_asset_class,
+            force_asset_class,
+        )
     }
 
     pub fn ingest_from_raw(
@@ -220,6 +375,8 @@ impl DataHub {
         datasets: Vec<String>,
         raw_datasets: HashMap<String, Value>,
         store: bool,
+        requested_asset_class: Option<&str>,
+        force_asset_class: bool,
     ) -> Result<IngestResult, HubError> {
         self.ingest_from_raw_with_asset_type(
             source,
@@ -228,6 +385,8 @@ impl DataHub {
             raw_datasets,
             store,
             "multi_asset",
+            requested_asset_class,
+            force_asset_class,
         )
     }
 
@@ -239,6 +398,8 @@ impl DataHub {
         raw_datasets: HashMap<String, Value>,
         store: bool,
         asset_type: &str,
+        requested_asset_class: Option<&str>,
+        force_asset_class: bool,
     ) -> Result<IngestResult, HubError> {
         let mut normalized: BTreeMap<String, Vec<BTreeMap<String, Value>>> = BTreeMap::new();
         let mut records = Vec::new();
@@ -271,10 +432,26 @@ impl DataHub {
 
         if store && !records.is_empty() {
             storage_receipts = self.storage.write(&records)?;
+            let mut params: BTreeMap<String, Value> = BTreeMap::new();
+            if let Some(ac) = requested_asset_class {
+                params.insert(
+                    "requested_asset_class".to_string(),
+                    Value::String(ac.to_string()),
+                );
+            }
+            params.insert(
+                "force_asset_class".to_string(),
+                Value::Bool(force_asset_class),
+            );
+            params.insert(
+                "asset_type".to_string(),
+                Value::String(asset_type.to_string()),
+            );
+
             let request = DataRequest {
                 dataset: datasets.join(","),
                 symbol: Some(symbol.to_string()),
-                parameters: BTreeMap::new(),
+                parameters: params,
             };
             provenance = Some(self.provenance.capture(
                 request,

@@ -1,0 +1,18 @@
+sources:
+  - id: binance
+    name: Binance
+    supported_asset_classes: [crypto]
+    supported_datasets: [kline, tick, trade]
+    priority: 10
+    api_templates:
+      kline: { endpoint: "https://api.binance.com/api/v3/klines", params: { symbol: "{symbol}", interval: "{interval}", limit: "{limit}" } }
+  - id: yahoo
+    name: Yahoo Finance
+    supported_asset_classes: [equities, crypto, forex]
+    supported_datasets: [kline, fundamentals]
+    priority: 20
+  - id: tefas
+    name: TEFAS
+    supported_asset_classes: [funds]
+    supported_datasets: [fundamentals]
+    priority: 5
