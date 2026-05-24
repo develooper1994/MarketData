@@ -4,7 +4,6 @@ use crate::contracts::{DataRequest, IngestResult};
 use crate::normalize::{normalize_dataset, to_data_records};
 use crate::provenance::ManifestProvenanceTracker;
 use crate::quality::CanonicalDataQuality;
-use crate::source_health::SourceHealth;
 use crate::source_registry::SourceRegistry;
 use crate::source_selector::SourceSelector;
 use crate::storage::{InMemoryStorage, StorageBackend};
@@ -14,7 +13,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
-use std::time::Duration;
+// Note: `SourceHealth` and `Duration` are used elsewhere; avoid importing
+// them here to prevent unused-import lints when building all features.
 #[cfg(feature = "metrics")]
 use metrics::{counter, histogram};
 
@@ -271,7 +271,7 @@ impl DataHub {
 
             if let Some(chosen_reg) = selector.chosen {
                 let mut best_match: Option<String> = None;
-                for (key, _) in capability_map().into_iter() {
+                for (key, _) in caps.into_iter() {
                     if key == chosen_reg || key.contains(&chosen_reg) {
                         best_match = Some(key);
                         break;
@@ -350,7 +350,7 @@ impl DataHub {
             // prefer mapped capability keys that correspond to registry id
             if let Some(chosen_reg) = selector.chosen {
                 let mut best_match: Option<String> = None;
-                for (key, _) in capability_map().into_iter() {
+                for (key, _) in caps.into_iter() {
                     if key == chosen_reg || key.contains(&chosen_reg) {
                         best_match = Some(key);
                         break;
