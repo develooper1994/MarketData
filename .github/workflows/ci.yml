@@ -21,6 +21,17 @@ jobs:
         rust: [stable, beta, nightly]
     steps:
       - uses: actions/checkout@v4
+      - name: Locate Cargo manifest
+        id: manifest
+        run: |
+          if [ -f Cargo.toml ]; then
+            echo "manifest=Cargo.toml" >> $GITHUB_OUTPUT
+          elif [ -f MarketData/Cargo.toml ]; then
+            echo "manifest=MarketData/Cargo.toml" >> $GITHUB_OUTPUT
+          else
+            echo "No Cargo.toml found in repository root or MarketData/" >&2
+            exit 1
+          fi
 
       - name: Cache cargo registry and git
         uses: actions/cache@v4
@@ -49,14 +60,19 @@ jobs:
           components: rustfmt, clippy
 
       - name: Run cargo fmt (check)
-        run: cargo fmt --all -- --check
+        run: |
+          manifest="${{ steps.manifest.outputs.manifest }}"
+          cargo fmt --manifest-path "$manifest" --all -- --check
 
       - name: Run cargo clippy
         run: |
-          cargo clippy --manifest-path MarketData/Cargo.toml --package market_data --all-targets || true
+          manifest="${{ steps.manifest.outputs.manifest }}"
+          cargo clippy --manifest-path "$manifest" --package market_data --all-targets || true
 
       - name: Run tests
-        run: cargo test --manifest-path MarketData/Cargo.toml --package market_data -- --nocapture
+        run: |
+          manifest="${{ steps.manifest.outputs.manifest }}"
+          cargo test --manifest-path "$manifest" --package market_data -- --nocapture
 
   live-tests:
     name: Live/network tests (manual)
@@ -75,4 +91,12 @@ jobs:
       - name: Run live/network tests
         env:
           MARKET_DATA_LIVE_TESTS: 1
-        run: cargo test --manifest-path MarketData/Cargo.toml --package market_data -- --nocapture
+        run: |
+          if [ -f Cargo.toml ]; then
+            cargo test --package market_data -- --nocapture
+          elif [ -f MarketData/Cargo.toml ]; then
+            cargo test --manifest-path MarketData/Cargo.toml --package market_data -- --nocapture
+          else
+            echo "No Cargo.toml found to run live tests against" >&2
+            exit 1
+          fi
