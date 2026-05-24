@@ -241,7 +241,7 @@ impl DataHub {
 
     /// Return a clone of the adapter for a given source, if present.
     pub fn adapter_for(&self, source: &str) -> Option<Arc<dyn RawSourceAdapter>> {
-        self.adapters.get(source).cloned()
+        self.adapters.get(source).map(|a| a.clone())
     }
 
     /// Resolve the actual source id to use when the caller provided `auto`.
