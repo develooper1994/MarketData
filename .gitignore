@@ -22,3 +22,7 @@ target
 
 # Ensure any nested external_tools build outputs are also ignored
 external_tools/*/target
+
+# Ignore relocated large TEFAS example datasets (moved to artifacts)
+artifacts/tefas-datasets/
+external_tools/tefas-cli/datasets/

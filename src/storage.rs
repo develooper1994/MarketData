@@ -44,11 +44,21 @@ impl StorageBackend for LocalArtifactStorage {
         create_dir_all(&self.root_path)?;
         let batch_id = Utc::now().format("%Y%m%d%H%M%S%3f").to_string();
         let target = self.root_path.join(format!("ingestion-{batch_id}.jsonl"));
-        let mut file = File::create(&target)?;
-        for record in records {
-            file.write_all(to_string(record)?.as_bytes())?;
-            file.write_all(b"\n")?;
+        let tmp = self
+            .root_path
+            .join(format!("ingestion-{batch_id}.jsonl.tmp"));
+
+        {
+            let mut file = File::create(&tmp)?;
+            for record in records {
+                file.write_all(to_string(record)?.as_bytes())?;
+                file.write_all(b"\n")?;
+            }
+            file.flush()?;
         }
+
+        // Atomic rename
+        std::fs::rename(&tmp, &target)?;
 
         Ok(vec![StorageReceipt {
             storage_id: batch_id,

@@ -15,6 +15,8 @@ use std::env;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "metrics")]
+use metrics::{counter, histogram};
 
 pub trait RawSourceAdapter: Send + Sync {
     fn fetch_raw(
@@ -237,6 +239,53 @@ impl DataHub {
         }
     }
 
+    /// Return a clone of the adapter for a given source, if present.
+    pub fn adapter_for(&self, source: &str) -> Option<Arc<dyn RawSourceAdapter>> {
+        self.adapters.get(source).cloned()
+    }
+
+    /// Resolve the actual source id to use when the caller provided `auto`.
+    /// This mirrors the resolution logic used by `ingest` but is provided
+    /// as a read-only helper so callers can perform network fetches in
+    /// parallel without taking a mutable borrow on the hub.
+    pub fn resolve_actual_source(&self, requested: &str, symbol: &str, datasets: &Vec<String>) -> String {
+        if requested == "auto" || requested.is_empty() {
+            let caps = capability_map();
+            let primary_dataset = datasets
+                .first()
+                .cloned()
+                .unwrap_or_else(|| "kline".to_string());
+            let registry_path = env::var("SOURCE_METADATA_PATH").unwrap_or_else(|_| {
+                format!("{}/config/source_metadata.yaml", env!("CARGO_MANIFEST_DIR"))
+            });
+            let registry = SourceRegistry::load_from_path(&registry_path).unwrap_or_default();
+            let selector = SourceSelector::select(
+                symbol,
+                &primary_dataset,
+                &registry,
+                None,
+                None,
+                false,
+                false,
+            );
+
+            if let Some(chosen_reg) = selector.chosen {
+                let mut best_match: Option<String> = None;
+                for (key, _) in capability_map().into_iter() {
+                    if key == chosen_reg || key.contains(&chosen_reg) {
+                        best_match = Some(key);
+                        break;
+                    }
+                }
+                best_match.unwrap_or_else(|| "offline_fallback".to_string())
+            } else {
+                "offline_fallback".to_string()
+            }
+        } else {
+            requested.to_string()
+        }
+    }
+
     /// Start a background streaming session for a source/symbol.
     pub fn start_stream(
         &mut self,
@@ -276,6 +325,8 @@ impl DataHub {
         force_asset_class: bool,
     ) -> Result<IngestResult, HubError> {
         // If caller requested automatic selection, consult the registry + selector
+        #[cfg(feature = "metrics")]
+        let ingest_start = std::time::Instant::now();
         let actual_source = if source == "auto" || source.is_empty() {
             let caps = capability_map();
             let primary_dataset = datasets
@@ -366,6 +417,15 @@ impl DataHub {
             requested_asset_class,
             force_asset_class,
         )
+        .map(|res| {
+            #[cfg(feature = "metrics")]
+            {
+                let elapsed = ingest_start.elapsed().as_secs_f64();
+                counter!("marketdata.ingest.count", 1, "source" => actual_source.clone());
+                histogram!("marketdata.ingest.latency_seconds", elapsed, "source" => actual_source);
+            }
+            res
+        })
     }
 
     pub fn ingest_from_raw(
