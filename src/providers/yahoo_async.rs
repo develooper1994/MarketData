@@ -55,7 +55,7 @@ impl AsyncRawSourceAdapter for YahooAsyncAdapter {
                         .get("quoteResponse")
                         .and_then(|q| q.get("result"))
                         .and_then(|r| r.as_array())
-                        .and_then(|arr| arr.get(0))
+                        .and_then(|arr| arr.first())
                         .cloned()
                     {
                         let mut record = serde_json::Map::new();

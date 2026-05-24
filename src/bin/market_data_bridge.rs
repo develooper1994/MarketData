@@ -51,6 +51,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     execute_command(canonical_command(command), command, command_args, None)
 }
 
+fn try_handle_stdin_request_mode() -> Result<bool, Box<dyn std::error::Error>> {
+    // If stdin is a TTY, nothing to do.
+    if io::stdin().is_terminal() {
+        return Ok(false);
+    }
+
+    // If there is piped data, consume it to avoid blocking. For now we don't
+    // interpret the payload here; return false so the normal CLI path continues.
+    let mut raw = String::new();
+    io::stdin().read_to_string(&mut raw)?;
+    if raw.trim().is_empty() {
+        return Ok(false);
+    }
+
+    // Not handling JSON-over-stdin mode specially in this stub.
+    Ok(false)
+}
+
 fn execute_json_operation(operation: &str) -> Result<(), Box<dyn std::error::Error>> {
     let payload = read_json_payload()?;
     let caps = capability_map();
@@ -425,60 +443,15 @@ fn execute_command(
             );
         }
         Some("ingest") => ingest(parse_ingest_options(command_args)?, ingest_input_override)?,
+        Some(other) => {
+            return Err(format!("unsupported command: {}", other).into());
+        }
         None => {
             println!("{}", help_text());
-        }
-        Some(_) => {
-            let command = command.unwrap_or_default();
-            return Err(format!(
-                "unknown command: {command}\n\nRun `market_data_bridge help` for usage.\n\n{}",
-                help_text()
-            )
-            .into());
         }
     }
 
     Ok(())
-}
-
-fn try_handle_stdin_request_mode() -> Result<bool, Box<dyn std::error::Error>> {
-    if io::stdin().is_terminal() {
-        return Ok(false);
-    }
-
-    let mut request = String::new();
-    io::stdin().read_to_string(&mut request)?;
-    if request.trim().is_empty() {
-        return Ok(false);
-    }
-
-    let value: Value = serde_json::from_str(&request)
-        .map_err(|error| format!("failed to parse stdin request json: {error}"))?;
-    let object = value
-        .as_object()
-        .ok_or("stdin request must be a JSON object")?;
-    let command = object
-        .get("command")
-        .or_else(|| object.get("cmd"))
-        .or_else(|| object.get("method"))
-        .or_else(|| object.get("action"))
-        .and_then(Value::as_str)
-        .ok_or("stdin request must include command")?;
-
-    let args = request_args(command, object)?;
-    let ingest_input_override = if command == "ingest" {
-        ingest_request_payload(object)?
-    } else {
-        None
-    };
-
-    execute_command(
-        canonical_command(Some(command)),
-        Some(command),
-        args,
-        ingest_input_override,
-    )?;
-    Ok(true)
 }
 
 fn request_args(
@@ -1105,23 +1078,22 @@ fn ingest(
     // If the caller explicitly requested TEFAS as the source (e.g. --source tefas_public),
     // register the TEFAS adapter even when ENABLE_TEFAS is not set. This lets explicit
     // invocations work without requiring the opt-in environment variable.
-    if options.source == "tefas" || options.source == "tefas_public" {
-        if registry.get("tefas_public").is_none() {
-            #[cfg(feature = "tefas")]
-            {
-                let tefas_adapter =
-                    std::sync::Arc::new(market_data::providers::tefas::TefasAdapter::default());
-                registry.register("tefas", tefas_adapter.clone());
-                registry.register("tefas_public", tefas_adapter);
-            }
+    if (options.source == "tefas" || options.source == "tefas_public")
+        && registry.get("tefas_public").is_none()
+    {
+        #[cfg(feature = "tefas")]
+        {
+            let tefas_adapter = std::sync::Arc::new(market_data::providers::tefas::TefasAdapter);
+            registry.register("tefas", tefas_adapter.clone());
+            registry.register("tefas_public", tefas_adapter);
+        }
 
-            #[cfg(not(feature = "tefas"))]
-            {
-                eprintln!(
-                    "Requested TEFAS source ({}), but crate was compiled without the `tefas` feature. Rebuild with `--features tefas` to enable.",
-                    options.source
-                );
-            }
+        #[cfg(not(feature = "tefas"))]
+        {
+            eprintln!(
+                "Requested TEFAS source ({}), but crate was compiled without the `tefas` feature. Rebuild with `--features tefas` to enable.",
+                options.source
+            );
         }
     }
     let mut streaming_registry = market_data::streaming::StreamingAdapterRegistry::default();
@@ -1503,13 +1475,8 @@ fn smoke_command(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     let mut ok = true;
     for item in &summary {
         if let Some(obj) = item.as_object() {
-            if obj.contains_key("processed_files") {
-                if obj
-                    .get("processed_files")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0)
-                    == 0
-                {
+            if let Some(processed) = obj.get("processed_files").and_then(Value::as_u64) {
+                if processed == 0 {
                     ok = false;
                 }
             } else if let Some(dc) = obj.get("dataset_coverage") {
@@ -1971,7 +1938,7 @@ fn run_ingest_with_live_fetch(
                         // map registry id -> capability key
                         let caps = capability_map();
                         let mut mapped_cap: Option<String> = None;
-                        for (key, cap) in &caps {
+                        for key in caps.keys() {
                             if key == &chosen_reg || key.contains(&chosen_reg) {
                                 mapped_cap = Some(key.clone());
                                 break;
@@ -2618,7 +2585,7 @@ fn fetch_btcturk_tick(symbol: &str) -> Result<Value, String> {
     let url = format!("{}/api/v2/ticker?pairSymbol={}", base, symbol);
     let json_v = fetch_json(&url, "btcturk")?;
     if let Some(arr) = json_v.get("data").and_then(|d| d.as_array()) {
-        if let Some(item) = arr.get(0) {
+        if let Some(item) = arr.first() {
             let mut map = serde_json::Map::new();
             if let Some(last) = item.get("last") {
                 map.insert("last".to_string(), last.clone());
@@ -2721,7 +2688,7 @@ fn fetch_tefas_values(symbol: &str) -> Result<Value, String> {
     .filter(|s| !s.is_empty())
     .collect();
 
-    let args = vec![
+    let args = [
         "query".to_string(),
         "fonFiyatBilgiGetir".to_string(),
         "--set".to_string(),
@@ -3828,7 +3795,7 @@ fn fetch_ecb_tick(symbol: &str) -> Result<Value, String> {
         .and_then(|series| series.values().next())
         .and_then(|row| row.get("observations"))
         .and_then(Value::as_object)
-        .and_then(|obs| obs.values().last())
+        .and_then(|obs| obs.values().next_back())
         .and_then(Value::as_array)
         .and_then(|rows| rows.first())
         .and_then(Value::as_f64)

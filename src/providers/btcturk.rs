@@ -39,7 +39,7 @@ impl RawSourceAdapter for BtcturkAdapter {
                     let resp = self.client.get(&url).send()?;
                     let json_v = resp.json::<Value>()?;
                     if let Some(arr) = json_v.get("data").and_then(|d| d.as_array()) {
-                        if let Some(item) = arr.get(0) {
+                        if let Some(item) = arr.first() {
                             let mut map = serde_json::Map::new();
                             if let Some(last) = item.get("last") {
                                 map.insert("last".to_string(), last.clone());

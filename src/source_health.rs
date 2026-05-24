@@ -274,7 +274,7 @@ mod tests {
         });
 
         // Create a temporary registry file pointing the source to the mock server
-        let mut tmp = NamedTempFile::new().unwrap();
+        let tmp = NamedTempFile::new().unwrap();
         let yaml = format!(
             "sources:\n  - id: \"mocksource\"\n    health_probe: \"{}\"\n    supported_asset_classes: []\n    supported_datasets: []\n",
             server.url("/health")

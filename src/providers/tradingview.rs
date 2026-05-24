@@ -19,7 +19,7 @@ impl RawSourceAdapter for TradingViewAdapter {
     fn fetch_raw(
         &self,
         _symbol: &str,
-        datasets: &[String],
+        _datasets: &[String],
         _timeframe: &str,
         _limit: usize,
         _requested_asset_class: Option<&str>,
