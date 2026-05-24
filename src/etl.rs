@@ -1,6 +1,9 @@
 use crate::contracts::IngestResult;
 use crate::hub::{DataHub, HubError};
+#[cfg(feature = "parallel")]
 use serde_json::Value;
+
+#[cfg(feature = "parallel")]
 use std::collections::HashMap;
 
 #[cfg(feature = "parallel")]

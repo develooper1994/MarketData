@@ -1,4 +1,4 @@
-use regex::Regex;
+// Fast subsequence check replaces regex-based interleaved matching for speed.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MatchType {
@@ -24,19 +24,32 @@ pub fn normalize_symbol(s: &str) -> String {
         .to_uppercase()
 }
 
-fn build_interleaved_regex(q: &str) -> Option<Regex> {
-    if q.is_empty() {
-        return None;
+
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    if needle.is_empty() {
+        return false;
     }
-    let parts: Vec<String> = q.chars().map(|c| regex::escape(&c.to_string())).collect();
-    let pattern = format!("(?i).*{}.*", parts.join(".*"));
-    Regex::new(&pattern).ok()
+    let mut needle_chars = needle.chars();
+    let mut current = match needle_chars.next() {
+        Some(c) => c,
+        None => return false,
+    };
+
+    for h in haystack.chars() {
+        if h == current {
+            if let Some(n) = needle_chars.next() {
+                current = n;
+            } else {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Rank candidates for the given query. Returns matches ordered by descending score.
 pub fn rank_matches(query: &str, candidates: &[String]) -> Vec<CandidateMatch> {
     let qn = normalize_symbol(query);
-    let interleaved_re = build_interleaved_regex(&qn);
     let mut out: Vec<CandidateMatch> = Vec::new();
 
     for cand in candidates.iter() {
@@ -56,11 +69,9 @@ pub fn rank_matches(query: &str, candidates: &[String]) -> Vec<CandidateMatch> {
         } else if cn.contains(&qn) {
             base_score = 60;
             mtype = Some(MatchType::Substring);
-        } else if let Some(re) = &interleaved_re {
-            if re.is_match(cand) || re.is_match(&cn) {
-                base_score = 40;
-                mtype = Some(MatchType::Interleaved);
-            }
+        } else if is_subsequence(&qn, &cn) {
+            base_score = 40;
+            mtype = Some(MatchType::Interleaved);
         }
 
         if let Some(mt) = mtype {

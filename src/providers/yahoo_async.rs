@@ -18,13 +18,13 @@ pub trait AsyncRawSourceAdapter: Send + Sync {
 }
 
 pub struct YahooAsyncAdapter {
-    client: reqwest_async::Client,
+    client: reqwest::Client,
 }
 
 impl YahooAsyncAdapter {
     pub fn new() -> Self {
         Self {
-            client: reqwest_async::Client::new(),
+            client: reqwest::Client::new(),
         }
     }
 }

@@ -260,7 +260,6 @@ mod tests {
     #[test]
     fn perform_check_uses_health_probe() {
         use httpmock::MockServer;
-        use std::env;
         use tempfile::NamedTempFile;
 
         // Start a mock HTTP server that responds 200 to /health
