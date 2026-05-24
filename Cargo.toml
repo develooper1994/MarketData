@@ -24,9 +24,10 @@ rand = "0.8"
 
 # Optional runtime metrics
 metrics = { version = "0.18", optional = true }
-reqwest_async = { package = "reqwest", version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 async-trait = { version = "0.1", optional = true }
 rayon = { version = "1.8", optional = true }
+aws-config = { version = "1", optional = true }
+aws-sdk-s3 = { version = "1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -39,7 +40,7 @@ criterion = "0.4"
 default = []
 # Optional features for progressive improvements
 metrics = ["dep:metrics"]
-async_providers = ["dep:reqwest_async", "dep:async-trait"]
-s3 = []
+async_providers = ["dep:async-trait"]
+s3 = ["dep:aws-config", "dep:aws-sdk-s3"]
 tefas = ["dep:tefas"]
 parallel = ["dep:rayon"]

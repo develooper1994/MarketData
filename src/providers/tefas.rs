@@ -57,7 +57,7 @@ impl TefasAdapter {
 impl RawSourceAdapter for TefasAdapter {
     fn fetch_raw(
         &self,
-        _symbol: &str,
+        symbol: &str,
         datasets: &[String],
         _timeframe: &str,
         _limit: usize,
